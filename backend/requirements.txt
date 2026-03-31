@@ -1,0 +1,34 @@
+# Core API
+fastapi>=0.115.6
+uvicorn>=0.32.1
+pydantic>=2.9.2
+python-multipart>=0.0.18
+
+# Database & Storage
+aiosqlite>=0.20.0
+sqlalchemy>=2.0.35
+greenlet>=3.1.1
+chromadb>=0.5.18
+
+# LLM Providers & SDKs
+openai>=1.52.1
+anthropic>=0.37.1
+google-genai>=0.3.0
+litellm>=1.50.0
+
+# Orchestration & Context
+langgraph>=0.2.40
+tiktoken>=0.8.0
+jinja2>=3.1.4
+
+# Artifact & Data Tools
+python-docx>=1.1.2
+XlsxWriter>=3.2.0
+plotly>=6.0.0
+
+# Identity, Auth & Utilities
+python-dotenv>=1.0.1
+httpx>=0.27.2
+mcp>=1.0.0
+bcrypt>=4.2.0
+PyJWT>=2.9.0
