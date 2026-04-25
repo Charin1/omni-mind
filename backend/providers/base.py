@@ -4,9 +4,10 @@ from pydantic import BaseModel
 
 class Message(BaseModel):
     role: str
-    content: str
+    content: Optional[str] = None
     name: Optional[str] = None
     tool_calls: Optional[List[Any]] = None
+    tool_call_id: Optional[str] = None
 
 class ModelConfig(BaseModel):
     model: Optional[str] = None
@@ -18,8 +19,9 @@ class ModelConfig(BaseModel):
     stream: bool = True
 
 class StreamChunk(BaseModel):
-    content: str
+    content: Optional[str] = None
     role: Optional[str] = None
+    tool_calls: Optional[List[Any]] = None
     finish_reason: Optional[str] = None
 
 class BaseLLMProvider(ABC):

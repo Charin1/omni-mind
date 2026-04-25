@@ -60,9 +60,34 @@ class LiteLLMGateway:
             choice = chunk.choices[0] if getattr(chunk, "choices", None) else None
             delta = choice.delta if choice else None
             content = getattr(delta, "content", None) if delta else None
-            if content:
+            tool_calls = getattr(delta, "tool_calls", None) if delta else None
+            
+            if content or tool_calls or getattr(choice, "finish_reason", None) == "tool_calls":
                 yield StreamChunk(
                     content=content,
                     role="assistant",
+                    tool_calls=tool_calls,
                     finish_reason=getattr(choice, "finish_reason", None),
                 )
+    async def chat(
+        self,
+        provider: str,
+        messages: List[Message],
+        config: ModelConfig,
+    ) -> str:
+        if not self.available:
+            raise RuntimeError("LiteLLM is not installed")
+
+        litellm_model = self.resolve_model(provider, config.model or "")
+        payload: Dict[str, Any] = {
+            "model": litellm_model,
+            "messages": [{"role": m.role, "content": m.content} for m in messages],
+            "temperature": config.temperature,
+        }
+        if config.max_tokens is not None:
+            payload["max_tokens"] = config.max_tokens
+        if provider == "ollama":
+            payload["api_base"] = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+        response = await self._acompletion(**payload)
+        return response.choices[0].message.content or ""

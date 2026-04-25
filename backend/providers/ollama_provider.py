@@ -1,9 +1,12 @@
 import os
 import json
+import logging
 import httpx
 from typing import AsyncGenerator, List, Optional, Any
 from .base import BaseLLMProvider, Message, ModelConfig, StreamChunk
 from .registry import registry
+
+logger = logging.getLogger("uvicorn.error")
 
 class OllamaProvider(BaseLLMProvider):
     def __init__(self):
@@ -47,14 +50,18 @@ class OllamaProvider(BaseLLMProvider):
 
     async def get_available_models(self) -> List[str]:
         try:
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=5.0) as client:
                 res = await client.get(f"{self.base_url}/api/tags")
                 if res.status_code == 200:
                     data = res.json()
+                    # Ollama returns full names like 'llama3.2:latest', we keep them as is
                     return [m["name"] for m in data.get("models", [])]
-        except Exception:
-            pass
-        return ["llama3.2", "qwen3", "qwen2.5", "gemma3", "mistral"]
+                else:
+                    logger.warning(f"Ollama tags returned status {res.status_code}")
+        except Exception as e:
+            logger.error(f"Failed to fetch Ollama models: {e}")
+        
+        return [] # Return empty list so UI knows Ollama is offline or has no models
 
 # Register the provider
 registry.register("ollama", OllamaProvider)

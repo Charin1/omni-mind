@@ -13,6 +13,8 @@ class WorkflowState(TypedDict, total=False):
     artifact_kind: Optional[str]
     response_text: Optional[str]
     task_id: Optional[str]
+    provider: Optional[str]
+    model: Optional[str]
 
 
 class GraphRuntime:
@@ -62,10 +64,15 @@ class GraphRuntime:
                 conversation_id=state["conversation_id"],
                 prompt=state["message"],
             )
-            steps = await self.research_service.get_steps(task.id)
+            # Execute the plan agentically
+            report = await self.research_service.execute_plan(
+                task_id=task.id,
+                provider=state.get("provider", "openai"),
+                model=state.get("model", "gpt-4o"),
+            )
             return {
                 "task_id": task.id,
-                "response_text": self.research_service.render_plan_message(task, steps),
+                "response_text": report,
             }
 
         async def chat_node(state: WorkflowState) -> WorkflowState:
@@ -99,11 +106,15 @@ class GraphRuntime:
         user_id: str,
         conversation_id: str,
         message: str,
+        provider: Optional[str] = None,
+        model: Optional[str] = None,
     ) -> WorkflowState:
         initial_state: WorkflowState = {
             "user_id": user_id,
             "conversation_id": conversation_id,
             "message": message,
+            "provider": provider,
+            "model": model,
         }
         if self._graph is not None:
             return await self._graph.ainvoke(initial_state)
@@ -131,10 +142,14 @@ class GraphRuntime:
                 conversation_id=conversation_id,
                 prompt=message,
             )
-            steps = await self.research_service.get_steps(task.id)
+            report = await self.research_service.execute_plan(
+                task_id=task.id,
+                provider=provider or "openai",
+                model=model or "gpt-4o",
+            )
             return {
                 "mode": "research",
                 "task_id": task.id,
-                "response_text": self.research_service.render_plan_message(task, steps),
+                "response_text": report,
             }
         return {"mode": "chat"}

@@ -26,7 +26,11 @@ class MCPClientHub:
         if stdio_client is None:
             raise RuntimeError("MCP support is not installed")
 
-        params = StdioServerParameters(command=command, args=args)
+        # Extract environment variables securely from the config if present
+        env_vars = config.get("env") if config else None
+
+        # Build parameters including the environment block mapping for auth tokens
+        params = StdioServerParameters(command=command, args=args, env=env_vars)
         self.server_params[name] = params
         self.server_configs[name] = config or {}
         

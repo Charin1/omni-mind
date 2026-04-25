@@ -25,6 +25,8 @@ jinja2>=3.1.4
 python-docx>=1.1.2
 XlsxWriter>=3.2.0
 plotly>=6.0.0
+duckduckgo-search>=7.1.1
+beautifulsoup4>=4.12.3
 
 # Identity, Auth & Utilities
 python-dotenv>=1.0.1

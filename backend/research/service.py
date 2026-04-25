@@ -6,6 +6,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from db.models import TaskRun, TaskStep
+from research.orchestrator import orchestrator as research_orchestrator
 
 
 class ResearchService:
@@ -45,6 +46,47 @@ class ResearchService:
 
         await self.db.commit()
         return task
+
+    async def execute_plan(
+        self,
+        task_id: str,
+        provider: str,
+        model: str,
+    ) -> str:
+        # Fetch task
+        result = await self.db.execute(select(TaskRun).where(TaskRun.id == task_id))
+        task = result.scalar_one_or_none()
+        if not task:
+            return "Task not found."
+
+        # Update status to running
+        task.status = "running"
+        await self.db.commit()
+
+        # Run research orchestrator
+        try:
+            report = await research_orchestrator.execute_research(
+                query=task.input_prompt,
+                provider=provider,
+                model=model
+            )
+            
+            # Update task status to completed
+            task.status = "completed"
+            task.summary = report[:500] + "..." # Store snippet in summary
+            
+            # Mark all steps as completed (simplified for now)
+            steps_result = await self.db.execute(select(TaskStep).where(TaskStep.task_id == task_id))
+            for step in steps_result.scalars().all():
+                step.status = "completed"
+                
+            await self.db.commit()
+            return report
+        except Exception as e:
+            task.status = "failed"
+            task.summary = f"Error: {str(e)}"
+            await self.db.commit()
+            return f"Research failed: {str(e)}"
 
     async def get_steps(self, task_id: str) -> List[TaskStep]:
         result = await self.db.execute(

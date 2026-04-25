@@ -23,6 +23,7 @@ from api.memory import router as mem_router
 from api.artifacts import router as artifact_router
 from api.mcp import router as mcp_router
 from api.tasks import router as task_router
+from api.tool_approval import router as tool_approval_router
 
 app = FastAPI(title="OmniMind API", lifespan=lifespan)
 
@@ -33,6 +34,7 @@ app.include_router(mem_router)
 app.include_router(artifact_router)
 app.include_router(mcp_router)
 app.include_router(task_router)
+app.include_router(tool_approval_router)
 
 # Allow React frontend to connect
 app.add_middleware(
