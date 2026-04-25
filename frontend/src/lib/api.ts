@@ -29,7 +29,7 @@ export interface McpServer {
   id: string;
   name: string;
   status: string;
-  config_json?: Record<string, any>;
+  config_json?: Record<string, unknown>;
 }
 
 export interface McpTool {
@@ -38,6 +38,23 @@ export interface McpTool {
   name: string;
   description: string;
   enabled: boolean;
+}
+
+export interface ToolApprovalRequest {
+  type: 'tool_approval_request';
+  approval_id: string;
+  tool_name: string;
+  tool_label: string;
+  tool_icon: string;
+  summary: string;
+  detail: string;
+  tool_args: Record<string, unknown>;
+}
+
+export interface ToolApprovalResolved {
+  type: 'tool_approval_resolved';
+  approval_id: string;
+  approved: boolean;
 }
 
 export interface ChatStreamOptions {
@@ -51,13 +68,24 @@ export interface ChatStreamOptions {
   onChunk: (content: string) => void;
   onDone: () => void;
   onError: (error: string) => void;
+  onToolApproval?: (request: ToolApprovalRequest) => void;
+  onToolApprovalResolved?: (resolved: ToolApprovalResolved) => void;
+  onThinkingStart?: () => void;
+  onThinkingChunk?: (content: string) => void;
+  onThinkingEnd?: () => void;
+  onResearchProgress?: (progress: { message: string; percentage: number }) => void;
+  onResponseReplace?: (content: string) => void;
+  onToolStatus?: (status: { toolName: string; status: string }) => void;
+  onToolSources?: (payload: { toolName: string; sources: Array<{ title: string; url: string }> }) => void;
 }
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 export async function chatStream(options: ChatStreamOptions) {
-  const { conversationId, userId, message, provider, model, history, settings, onChunk, onDone, onError } = options;
+  const { conversationId, userId, message, provider, model, history, settings,
+    onChunk, onDone, onError, onToolApproval, onToolApprovalResolved,
+    onThinkingStart, onThinkingChunk, onThinkingEnd, onResearchProgress, onResponseReplace, onToolStatus, onToolSources } = options;
 
   try {
     const response = await fetch(`${API_BASE_URL}/api/chat`, {
@@ -106,6 +134,32 @@ export async function chatStream(options: ChatStreamOptions) {
             const data = JSON.parse(dataStr);
             if (data.error) {
               onError(data.error);
+            } else if (data.type === 'thinking_start' && onThinkingStart) {
+              onThinkingStart();
+            } else if (data.type === 'thinking_chunk' && onThinkingChunk) {
+              onThinkingChunk(data.content);
+            } else if (data.type === 'thinking_end' && onThinkingEnd) {
+              onThinkingEnd();
+            } else if (data.type === 'tool_approval_request' && onToolApproval) {
+              onToolApproval(data as ToolApprovalRequest);
+            } else if (data.type === 'tool_approval_resolved' && onToolApprovalResolved) {
+              onToolApprovalResolved(data as ToolApprovalResolved);
+            } else if (data.type === 'research_progress' && onResearchProgress) {
+              onResearchProgress({ message: data.message, percentage: data.percentage });
+            } else if (data.type === 'tool_call_detected') {
+              // Backend detected a text-based tool call and rolled it back.
+              // Clear whatever we streamed (it was just the raw JSON blob).
+              onChunk('\x00CLEAR');
+            } else if (data.type === 'response_replace') {
+              if (onResponseReplace) onResponseReplace(data.content || '');
+              else {
+                onChunk('\x00CLEAR');
+                if (data.content) onChunk(data.content);
+              }
+            } else if (data.type === 'tool_status' && onToolStatus) {
+              onToolStatus({ toolName: data.tool_name, status: data.status });
+            } else if (data.type === 'tool_sources' && onToolSources) {
+              onToolSources({ toolName: data.tool_name, sources: data.sources || [] });
             } else if (data.content) {
               onChunk(data.content);
             }
@@ -124,7 +178,15 @@ export async function chatStream(options: ChatStreamOptions) {
 
 export async function listProviders() {
   const response = await fetch(`${API_BASE_URL}/api/chat/providers`);
+  if (!response.ok) throw new Error(`Failed to fetch providers: ${response.status}`);
   return response.json();
+}
+
+export async function fetchProviderModels(providerName: string): Promise<string[]> {
+  const response = await fetch(`${API_BASE_URL}/api/chat/providers/${providerName}/models`);
+  if (!response.ok) throw new Error(`Failed to fetch models for ${providerName}`);
+  const data = await response.json();
+  return data.models as string[];
 }
 
 export async function listArtifacts(userId: string, conversationId?: string) {
@@ -173,7 +235,7 @@ export async function listMcpTools() {
   return response.json() as Promise<McpTool[]>;
 }
 
-export async function createMcpServer(data: Omit<McpServer, 'status'> & { transport: string, config_json: Record<string, any> }) {
+export async function createMcpServer(data: Omit<McpServer, 'status'> & { transport: string, config_json: Record<string, unknown> }) {
   const response = await fetch(`${API_BASE_URL}/api/mcp/servers`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -193,6 +255,27 @@ export async function connectMcpServer(serverId: string) {
   if (!response.ok) {
     const err = await response.json();
     throw new Error(err.detail || 'Failed to connect MCP server');
+  }
+  return response.json();
+}
+
+export async function submitToolApproval(
+  approvalId: string,
+  approved: boolean,
+  rejectReason?: string
+) {
+  const response = await fetch(`${API_BASE_URL}/api/tool-approval`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      approval_id: approvalId,
+      approved,
+      reject_reason: rejectReason || undefined,
+    }),
+  });
+  if (!response.ok) {
+    const err = await response.json().catch(() => ({ detail: 'Unknown error' }));
+    throw new Error(err.detail || 'Failed to submit approval');
   }
   return response.json();
 }
