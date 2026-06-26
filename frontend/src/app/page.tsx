@@ -21,7 +21,7 @@ import {
 } from '@/lib/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Brain, Search, Clock, FileText, CheckCircle, Orbit, Server, Wrench, MessageSquare, Plus, Settings, Edit3, Trash2, X, UploadCloud, BrainCircuit, Share2, Loader2, Terminal, ShieldCheck, ShieldX, ChevronDown, ChevronUp, Copy, RotateCcw, Link2 } from 'lucide-react';
+import { Brain, Search, Clock, FileText, CheckCircle, Orbit, Server, Wrench, MessageSquare, Plus, Settings, Edit3, Trash2, X, UploadCloud, BrainCircuit, Share2, Loader2, Terminal, ShieldCheck, ShieldX, ChevronDown, ChevronUp, Copy, RotateCcw, Link2, Sun, Moon } from 'lucide-react';
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
@@ -261,6 +261,36 @@ function ResearchProgressBar({ message, percentage }: { message: string; percent
 
 export default function Home() {
   const [messages, setMessages] = useState<LocalMessage[]>([]);
+  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+
+  useEffect(() => {
+    const saved = localStorage.getItem('omnimind-theme');
+    if (saved === 'light' || saved === 'dark') {
+      setTheme(saved);
+      if (saved === 'light') {
+        document.documentElement.classList.add('light');
+      } else {
+        document.documentElement.classList.remove('light');
+      }
+    } else {
+      const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+      if (prefersLight) {
+        setTheme('light');
+        document.documentElement.classList.add('light');
+      }
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setTheme(next);
+    localStorage.setItem('omnimind-theme', next);
+    if (next === 'light') {
+      document.documentElement.classList.add('light');
+    } else {
+      document.documentElement.classList.remove('light');
+    }
+  };
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [userId] = useState(getOrCreateUserId);
@@ -950,6 +980,17 @@ export default function Home() {
                </div>
              )}
             <button 
+              onClick={toggleTheme}
+              className="p-2.5 rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-all shadow-sm flex items-center justify-center"
+              title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+            >
+                {theme === 'dark' ? (
+                  <Sun className="w-4.5 h-4.5 text-amber-400" />
+                ) : (
+                  <Moon className="w-4.5 h-4.5 text-indigo-400" />
+                )}
+            </button>
+            <button 
               onClick={() => alert('Settings module coming soon!')}
               className="p-2.5 rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-all shadow-sm"
             >
@@ -998,7 +1039,7 @@ export default function Home() {
                       <div className={`${
                           m.role === 'user' 
                           ? 'rounded-3xl bg-white/[0.08] border border-white/10 px-5 py-3.5 text-white shadow-sm' 
-                          : 'px-1 py-1 prose prose-invert prose-p:leading-relaxed prose-pre:bg-background/50 prose-pre:border prose-pre:border-foreground/10 prose-a:text-accent prose-a:no-underline hover:prose-a:underline'
+                          : `px-1 py-1 prose ${theme === 'dark' ? 'prose-invert' : ''} prose-p:leading-relaxed prose-pre:bg-background/50 prose-pre:border prose-pre:border-foreground/10 prose-a:text-accent prose-a:no-underline hover:prose-a:underline`
                       }`}>
                         {m.role === 'user' ? (
                            <div className="text-[15px] font-medium leading-relaxed whitespace-pre-wrap tracking-wide">{displayContent}</div>
@@ -1057,7 +1098,7 @@ export default function Home() {
                 
                 {(currentThinking || currentResponse) && (
                   <div className="flex justify-start animate-fade-in">
-                    <div className="w-full max-w-3xl px-1 py-1 prose prose-invert prose-p:leading-relaxed prose-pre:bg-background/50 prose-pre:border prose-pre:border-foreground/10 prose-a:text-accent prose-a:no-underline">
+                    <div className={`w-full max-w-3xl px-1 py-1 prose ${theme === 'dark' ? 'prose-invert' : ''} prose-p:leading-relaxed prose-pre:bg-background/50 prose-pre:border prose-pre:border-foreground/10 prose-a:text-accent prose-a:no-underline`}>
                       <div className="text-[15px] leading-7 font-normal tracking-wide markdown-body relative text-white/88">
                         {currentThinking && <ThinkingBlock content={currentThinking} isLive={isThinking} />}
                         {currentResponse && (

@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+@theme {
+  --color-white: hsl(var(--theme-white));
+  --color-black: hsl(var(--theme-black));
+}
+
 :root {
   --background: 25 20% 8%;
   --foreground: 35 20% 90%;
@@ -18,6 +23,32 @@
   --border: 25 20% 18%;
   --input: 25 20% 18%;
   --ring: 25 80% 50%;
+
+  --theme-white: 0 0% 100%;
+  --theme-black: 0 0% 0%;
+}
+
+.light {
+  --background: 35 20% 95%;
+  --foreground: 25 15% 12%;
+  --card: 35 20% 98%;
+  --card-foreground: 25 15% 12%;
+  --popover: 35 20% 97%;
+  --popover-foreground: 25 15% 12%;
+  --primary: 25 80% 48%;
+  --primary-foreground: 0 0% 100%;
+  --secondary: 35 15% 90%;
+  --secondary-foreground: 25 15% 15%;
+  --muted: 35 12% 87%;
+  --muted-foreground: 25 10% 45%;
+  --accent: 35 90% 45%;
+  --accent-foreground: 25 90% 95%;
+  --border: 25 12% 84%;
+  --input: 25 12% 84%;
+  --ring: 25 80% 48%;
+
+  --theme-white: 25 15% 15%;
+  --theme-black: 35 20% 98%;
 }
 
 body {
@@ -27,6 +58,7 @@ body {
   margin: 0;
   padding: 0;
   -webkit-font-smoothing: antialiased;
+  transition: background-color 0.3s ease, color 0.3s ease;
 }
 
 /* Glassmorphism Classes */
@@ -36,6 +68,7 @@ body {
   -webkit-backdrop-filter: blur(12px);
   border: 1px solid hsl(var(--foreground) / 0.1);
   box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
 .glass-dark {
@@ -43,6 +76,7 @@ body {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid hsl(var(--foreground) / 0.05);
+  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
 }
 
 /* Custom Scrollbar */
