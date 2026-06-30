@@ -65,10 +65,13 @@ function normalizeAssistantContent(content: string) {
   const raw = (content || '').trim();
   if (!raw) return '';
 
-  const unfenced = raw
+  let unfenced = raw
     .replace(/^```(?:json|markdown|md)?\s*/i, '')
     .replace(/\s*```$/i, '')
     .trim();
+
+  // Strip trailing special tokens/tags like <|tool_response>
+  unfenced = unfenced.replace(/<\|[a-z0-9_\-\|\s]+(?:>)?\s*$/i, '').trim();
 
   try {
     const parsed = JSON.parse(unfenced);
@@ -84,6 +87,8 @@ function normalizeAssistantContent(content: string) {
       if (typeof record.summary === 'string') readable.push(record.summary.trim());
       if (typeof record.analysis === 'string') readable.push(record.analysis.trim());
       if (typeof record.plan === 'string') readable.push(record.plan.trim());
+      if (typeof record.thought === 'string') readable.push(record.thought.trim());
+      if (typeof record.reasoning === 'string') readable.push(record.reasoning.trim());
       if (readable.length > 0) return readable.join('\n\n');
     }
   } catch {

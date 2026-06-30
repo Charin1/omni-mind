@@ -58,20 +58,67 @@ vector_store = VectorStore()
 llm_gateway = LiteLLMGateway()
 
 
-def _clean_json_wrapped_response(content: str) -> Optional[str]:
-    raw = (content or "").strip()
+def _extract_json_block(text: str) -> Optional[str]:
+    raw = (text or "").strip()
     if not raw:
         return None
 
-    raw = re.sub(r'^```(?:json|markdown|md)?\s*', '', raw)
-    raw = re.sub(r'\s*```$', '', raw).strip()
+    # Try parsing the whole thing first
+    try:
+        json.loads(raw)
+        return raw
+    except Exception:
+        pass
+
+    # Clean markdown fences
+    cleaned = re.sub(r'^```(?:json|markdown|md)?\s*', '', raw)
+    cleaned = re.sub(r'\s*```$', '', cleaned).strip()
+    try:
+        json.loads(cleaned)
+        return cleaned
+    except Exception:
+        pass
+
+    # Find first { and last }
+    first_brace = raw.find('{')
+    last_brace = raw.rfind('}')
+    if first_brace != -1 and last_brace != -1 and last_brace > first_brace:
+        candidate = raw[first_brace:last_brace + 1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except Exception:
+            pass
+
+    # Find first [ and last ]
+    first_bracket = raw.find('[')
+    last_bracket = raw.rfind(']')
+    if first_bracket != -1 and last_bracket != -1 and last_bracket > first_bracket:
+        candidate = raw[first_bracket:last_bracket + 1]
+        try:
+            json.loads(candidate)
+            return candidate
+        except Exception:
+            pass
+
+    return None
+
+
+def _clean_json_wrapped_response(content: str) -> Optional[str]:
+    json_block = _extract_json_block(content)
+    if not json_block:
+        return None
 
     try:
-        parsed = json.loads(raw)
+        parsed = json.loads(json_block)
     except Exception:
         return None
 
     if not isinstance(parsed, dict):
+        return None
+
+    # If it is a tool call, do not extract it as a final answer
+    if "name" in parsed and "arguments" in parsed:
         return None
 
     for key in ("answer", "final", "response", "content", "result"):
@@ -80,7 +127,7 @@ def _clean_json_wrapped_response(content: str) -> Optional[str]:
             return value.strip()
 
     readable_parts = []
-    for key in ("summary", "analysis", "plan"):
+    for key in ("summary", "analysis", "plan", "thought", "reasoning"):
         value = parsed.get(key)
         if isinstance(value, str) and value.strip():
             readable_parts.append(value.strip())
@@ -104,6 +151,40 @@ def _default_output_budget(provider: str, model: str) -> int:
 def _starts_with_json_reasoning(content: str) -> bool:
     raw = (content or "").lstrip()
     return raw.startswith('{"thought"') or raw.startswith('{"analysis"') or raw.startswith('{"plan"')
+
+
+# Phrases that signal the model narrated its plan / restated the tool results
+# ("meta-reasoning") instead of actually answering. Common with small local
+# models after a tool call — they describe what they *could* say and then stop.
+_META_REASONING_MARKERS = (
+    "the user wants",
+    "the user is asking",
+    "the user asked",
+    "the user's question",
+    "the user's query",
+    "based on the search results",
+    "the search results provide",
+    "the search results show",
+    "the search results indicate",
+    "the search results contain",
+    "i can find information",
+    "i will now",
+    "i should now",
+    "let me synthesize",
+    "let me now",
+    "here is my plan",
+)
+
+
+def _looks_like_meta_reasoning(content: str) -> bool:
+    """True if the text reads like the model talking about the task/results
+    rather than answering the user. Only the opening is inspected so a genuine
+    answer that happens to mention these phrases later isn't misclassified."""
+    raw = (content or "").strip().lower()
+    if not raw:
+        return False
+    head = raw[:160]
+    return any(marker in head for marker in _META_REASONING_MARKERS)
 
 
 def _extract_tool_sources(tool_name: str, tool_result_text: str) -> list[dict[str, str]]:
@@ -406,16 +487,27 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                 max_iterations = 3
             iterations = 0
 
-            # Thinking block state machine (for <think>...</think> tokens)
-            _think_in_block = False
-            _think_buf = ""  # rolling buffer for tag boundary detection
+            # Post-tool synthesis guard: small local models often answer a tool
+            # turn with meta-reasoning instead of a real answer. We force exactly
+            # one stricter retry before giving up.
+            executed_tool_this_run = False
+            synthesis_retry_used = False
 
             while iterations < max_iterations:
                 iterations += 1
                 assistant_response = ""
+                raw_model_output = ""
                 gathered_tool_calls: dict[int, dict] = {}
                 iter_response_start = len(total_assistant_response)  # for rollback if text tool call detected
                 suppress_json_reasoning = False
+
+                # Thinking block state machine (for <think>...</think> tokens).
+                # Reset per-iteration: each LLM completion is an independent
+                # response with its own <think> block. Leaking this state across
+                # iterations causes a synthesis turn after a tool call to be
+                # treated as thinking and never shown to the user (stuck spinner).
+                _think_in_block = False
+                _think_buf = ""  # rolling buffer for tag boundary detection
 
                 async with chat_semaphore:
                     if llm_gateway.available:
@@ -457,6 +549,18 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                                     if not _think_in_block:
                                         tag_start = _think_buf.find("<think>")
                                         if tag_start == -1:
+                                            # If we are at the very beginning of the response, check if the start matches JSON reasoning.
+                                            # We buffer up to 12 characters to ensure we can identify the JSON keys fully.
+                                            if not assistant_response and len(_think_buf.lstrip()) < 12:
+                                                is_prefix = False
+                                                buf_lstripped = _think_buf.lstrip()
+                                                for prefix in ('{"thought"', '{"analysis"', '{"plan"'):
+                                                    if prefix.startswith(buf_lstripped):
+                                                        is_prefix = True
+                                                        break
+                                                if is_prefix:
+                                                    break # Keep buffering to see if it is JSON reasoning
+
                                             if not assistant_response and _starts_with_json_reasoning(_think_buf):
                                                 suppress_json_reasoning = True
                                                 # Keep buffering hidden reasoning so we can recover an
@@ -504,12 +608,22 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                             yield f"data: {json.dumps({'error': f'LLM Stream Error: {str(e)}'})}\n\n"
                             break
 
+                        # Capture full raw response for text-based tool call detection
+                        raw_model_output = assistant_response + _think_buf
+
                         # Flush any remaining buffer after the stream ends
-                        if _think_buf:
-                            if _think_in_block:
+                        if _think_in_block:
+                            # Stream ended before the model closed </think> (e.g. it
+                            # stopped to emit a tool call). Flush whatever is buffered
+                            # and always close the block so the frontend thinking
+                            # indicator doesn't stay open forever.
+                            if _think_buf:
                                 yield f"data: {json.dumps({'type': 'thinking_chunk', 'content': _think_buf})}\n\n"
-                                yield f"data: {json.dumps({'type': 'thinking_end'})}\n\n"
-                            elif suppress_json_reasoning and _starts_with_json_reasoning(_think_buf):
+                            yield f"data: {json.dumps({'type': 'thinking_end'})}\n\n"
+                            _think_in_block = False
+                            _think_buf = ""
+                        elif _think_buf:
+                            if suppress_json_reasoning and _starts_with_json_reasoning(_think_buf):
                                 cleaned_reasoning_response = _clean_json_wrapped_response(_think_buf)
                                 if cleaned_reasoning_response:
                                     assistant_response += cleaned_reasoning_response
@@ -523,40 +637,40 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
 
                 # --- Text-based tool call detection (Ollama / models without native function calling) ---
                 # Some models output {"name": ..., "arguments": ...} as plain text instead of delta tool_calls.
-                if not gathered_tool_calls and assistant_response.strip():
+                if not gathered_tool_calls and raw_model_output.strip():
                     try:
-                        raw_call = assistant_response.strip()
-                        # Strip markdown code fences if present
-                        raw_call = re.sub(r'^```(?:json)?\s*', '', raw_call)
-                        raw_call = re.sub(r'\s*```$', '', raw_call).strip()
-                        parsed = json.loads(raw_call)
-                        
-                        # Handle models that wrap calls in a {"tool_calls": [...]} object
-                        if isinstance(parsed, dict) and "tool_calls" in parsed and isinstance(parsed["tool_calls"], list):
-                            candidates = parsed["tool_calls"]
-                        else:
-                            # Accept single call {name, arguments} or list of calls
-                            candidates = [parsed] if isinstance(parsed, dict) else (parsed if isinstance(parsed, list) else [])
+                        raw_call = raw_model_output.strip()
+                        # Extract the JSON substring if it's wrapped in text/fences
+                        json_block = _extract_json_block(raw_call)
+                        if json_block:
+                            parsed = json.loads(json_block)
                             
-                        for i, cand in enumerate(candidates):
-                            if isinstance(cand, dict) and "name" in cand and "arguments" in cand:
-                                tool_name = cand["name"]
-                                # Explicitly skip "answer" if it's formatted as a tool call
-                                if tool_name == "answer":
-                                    continue
-                                    
-                                args = cand["arguments"]
-                                gathered_tool_calls[i] = {
-                                    "id": f"txt_{iterations}_{i}",
-                                    "name": tool_name,
-                                    "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
-                                }
-                        if gathered_tool_calls:
-                            # Rollback: remove the raw JSON blob from the visible assistant response
-                            total_assistant_response = total_assistant_response[:iter_response_start]
-                            assistant_response = ""
-                            # Notify frontend the text was a tool call
-                            yield f"data: {json.dumps({'type': 'tool_call_detected', 'count': len(gathered_tool_calls)})}\n\n"
+                            # Handle models that wrap calls in a {"tool_calls": [...]} object
+                            if isinstance(parsed, dict) and "tool_calls" in parsed and isinstance(parsed["tool_calls"], list):
+                                candidates = parsed["tool_calls"]
+                            else:
+                                # Accept single call {name, arguments} or list of calls
+                                candidates = [parsed] if isinstance(parsed, dict) else (parsed if isinstance(parsed, list) else [])
+                                
+                            for i, cand in enumerate(candidates):
+                                if isinstance(cand, dict) and "name" in cand and "arguments" in cand:
+                                    tool_name = cand["name"]
+                                    # Explicitly skip "answer" if it's formatted as a tool call
+                                    if tool_name == "answer":
+                                        continue
+                                        
+                                    args = cand["arguments"]
+                                    gathered_tool_calls[i] = {
+                                        "id": f"txt_{iterations}_{i}",
+                                        "name": tool_name,
+                                        "arguments": json.dumps(args) if isinstance(args, dict) else str(args),
+                                    }
+                            if gathered_tool_calls:
+                                # Rollback: remove the raw JSON blob from the visible assistant response
+                                total_assistant_response = total_assistant_response[:iter_response_start]
+                                assistant_response = ""
+                                # Notify frontend the text was a tool call
+                                yield f"data: {json.dumps({'type': 'tool_call_detected', 'count': len(gathered_tool_calls)})}\n\n"
                     except (json.JSONDecodeError, TypeError, ValueError):
                         pass
 
@@ -730,6 +844,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                             full_messages.append(Message(role="tool", content=str(tool_result_text), tool_call_id=call["id"], name=tool_name))
                     
                     # Tool cycle processed; continue the outer while loop to synthesize final answer
+                    executed_tool_this_run = True
                     continue
                 else:
                     # Normal finish, check if the response was wrapped in a JSON "answer" object
@@ -746,6 +861,29 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                         assistant_response = fallback_response
                         total_assistant_response = total_assistant_response[:iter_response_start] + fallback_response
                         yield f"data: {json.dumps({'type': 'response_replace', 'content': fallback_response})}\n\n"
+                    elif (
+                        executed_tool_this_run
+                        and not synthesis_retry_used
+                        and iterations < max_iterations
+                        and (not assistant_response.strip() or _looks_like_meta_reasoning(assistant_response))
+                    ):
+                        # The model restated the task / tool results (or said nothing)
+                        # instead of answering. Discard that preamble and force one
+                        # stricter synthesis pass with the tool results still in context.
+                        synthesis_retry_used = True
+                        total_assistant_response = total_assistant_response[:iter_response_start]
+                        yield f"data: {json.dumps({'type': 'response_replace', 'content': ''})}\n\n"
+                        full_messages.append(Message(
+                            role="user",
+                            content=(
+                                "[System: Your previous reply only described the task or restated the "
+                                "search results instead of answering. Write the FINAL answer to the user's "
+                                "original question NOW, directly in clear markdown. Present the actual "
+                                "information — do NOT refer to 'the user', 'the search results', or your own "
+                                "process, and do NOT output JSON or hidden reasoning.]"
+                            ),
+                        ))
+                        continue
                     break
 
             await session_manager.append_message(
