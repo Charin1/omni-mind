@@ -24,6 +24,7 @@ async def summarize_messages(messages: List[Message], provider_name: str = "open
     
     summary = ""
     async for chunk in provider.chat(prompt_messages, config):
-        summary += chunk.content
+        if chunk.content:
+            summary += chunk.content
     
     return summary.strip()

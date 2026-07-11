@@ -2,10 +2,21 @@ import datetime
 from sqlalchemy import Column, String, Text, Integer, Float, DateTime, Boolean, JSON
 from .database import Base
 
+class Project(Base):
+    __tablename__ = "projects"
+    id = Column(String, primary_key=True, index=True)
+    user_id = Column(String, index=True, default="local-user")
+    name = Column(String)
+    description = Column(Text, nullable=True)
+    instructions = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+
 class Conversation(Base):
     __tablename__ = "conversations"
     id = Column(String, primary_key=True, index=True)
     user_id = Column(String, index=True, default="local-user")
+    project_id = Column(String, index=True, nullable=True)
     title = Column(String, nullable=True)
     provider = Column(String, nullable=True)
     model = Column(String, nullable=True)
@@ -99,6 +110,6 @@ class MCPServer(Base):
     __tablename__ = "mcp_servers"
     id = Column(String, primary_key=True, index=True)
     name = Column(String, unique=True, index=True)
-    transport = Column(String) # stdio, sse
+    transport = Column(String) # stdio, http (streamable_http), sse
     config_json = Column(JSON)
     is_active = Column(Boolean, default=True)

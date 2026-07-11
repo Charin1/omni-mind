@@ -30,6 +30,7 @@ export interface McpServer {
   name: string;
   status: string;
   config_json?: Record<string, unknown>;
+  connected?: boolean;
 }
 
 export interface McpTool {
@@ -65,6 +66,7 @@ export interface ChatStreamOptions {
   model: string;
   history: Message[];
   settings?: Record<string, unknown>;
+  projectId?: string | null;
   onChunk: (content: string) => void;
   onDone: () => void;
   onError: (error: string) => void;
@@ -83,7 +85,7 @@ const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
 
 export async function chatStream(options: ChatStreamOptions) {
-  const { conversationId, userId, message, provider, model, history, settings,
+  const { conversationId, userId, message, provider, model, history, settings, projectId,
     onChunk, onDone, onError, onToolApproval, onToolApprovalResolved,
     onThinkingStart, onThinkingChunk, onThinkingEnd, onResearchProgress, onResponseReplace, onToolStatus, onToolSources } = options;
 
@@ -101,6 +103,7 @@ export async function chatStream(options: ChatStreamOptions) {
         model,
         history,
         settings,
+        project_id: projectId ?? null,
       }),
     });
 
@@ -224,6 +227,68 @@ export async function updateConversation(id: string, title: string) {
   return response.json();
 }
 
+export interface Project {
+  id: string;
+  user_id: string;
+  name: string;
+  description: string | null;
+  instructions: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export async function listProjects(userId: string) {
+  const url = new URL(`${API_BASE_URL}/api/projects`);
+  url.searchParams.set('user_id', userId);
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error('Failed to fetch projects');
+  return response.json() as Promise<Project[]>;
+}
+
+export async function createProject(data: { name: string; description?: string; instructions?: string; user_id?: string }) {
+  const response = await fetch(`${API_BASE_URL}/api/projects`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to create project');
+  return response.json() as Promise<Project>;
+}
+
+export async function updateProject(id: string, data: { name?: string; description?: string; instructions?: string }) {
+  const response = await fetch(`${API_BASE_URL}/api/projects/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+  if (!response.ok) throw new Error('Failed to update project');
+  return response.json() as Promise<Project>;
+}
+
+export async function deleteProject(id: string) {
+  const response = await fetch(`${API_BASE_URL}/api/projects/${id}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) throw new Error('Failed to delete project');
+  return response.json();
+}
+
+export async function getSetting(key: string) {
+  const response = await fetch(`${API_BASE_URL}/api/settings/${key}`);
+  if (!response.ok) throw new Error('Failed to fetch setting');
+  return response.json() as Promise<{ key: string; value: unknown }>;
+}
+
+export async function putSetting(key: string, value: unknown) {
+  const response = await fetch(`${API_BASE_URL}/api/settings/${key}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ value }),
+  });
+  if (!response.ok) throw new Error('Failed to save setting');
+  return response.json() as Promise<{ key: string; value: unknown }>;
+}
+
 
 export async function listMcpServers() {
   const response = await fetch(`${API_BASE_URL}/api/mcp/servers`);
@@ -255,6 +320,28 @@ export async function connectMcpServer(serverId: string) {
   if (!response.ok) {
     const err = await response.json();
     throw new Error(err.detail || 'Failed to connect MCP server');
+  }
+  return response.json() as Promise<{ server: string; connected: boolean; transport: string; reason?: string; requires_oauth?: boolean }>;
+}
+
+export async function startMcpOAuth(serverId: string) {
+  const response = await fetch(`${API_BASE_URL}/api/mcp/servers/${serverId}/oauth/start`, {
+    method: 'POST',
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.detail || 'Failed to start OAuth authorization');
+  }
+  return response.json() as Promise<{ authorization_url: string }>;
+}
+
+export async function deleteMcpServer(serverId: string) {
+  const response = await fetch(`${API_BASE_URL}/api/mcp/servers/${serverId}`, {
+    method: 'DELETE',
+  });
+  if (!response.ok) {
+    const err = await response.json();
+    throw new Error(err.detail || 'Failed to delete MCP server');
   }
   return response.json();
 }

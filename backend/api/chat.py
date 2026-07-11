@@ -6,6 +6,7 @@ import json
 import re
 import logging
 import asyncio
+import time
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agents.graph_runtime import GraphRuntime
@@ -20,6 +21,7 @@ from context.token_counter import count_tokens
 from memory.engine import MemoryEngine
 from memory.vector_store import VectorStore
 from db.database import get_db
+from db.models import Project
 from app_mcp.client import mcp_hub
 from app_mcp.tool_converter import ToolConverter
 from research.service import ResearchService
@@ -29,6 +31,8 @@ from tools.web_search import web_search_tools
 from research.orchestrator import orchestrator as research_orchestrator
 from tools.computer_use import computer_use_tools, TOOL_SCHEMAS as COMPUTER_USE_SCHEMAS
 from api.tool_approval import create_approval, wait_for_approval
+from api.settings import get_setting_value
+from observability import metrics as obs
 
 logger = logging.getLogger("uvicorn.error")
 logger.setLevel(logging.INFO)
@@ -51,6 +55,7 @@ class ChatRequest(BaseModel):
     model: str
     history: List[Message] = []
     settings: Optional[ChatSettings] = None
+    project_id: Optional[str] = None
 
 
 context_manager = ContextManager()
@@ -239,12 +244,13 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         research_service=research_service,
     )
 
-    await session_manager.ensure_conversation(
+    conversation = await session_manager.ensure_conversation(
         conversation_id=request.conversation_id,
         user_id=user_id,
         provider=request.provider,
         model=request.model,
         title=request.message[:60],
+        project_id=request.project_id,
     )
 
     persisted_messages, stored_summary = await session_manager.build_context_messages(
@@ -294,6 +300,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
 
     # 2. Retrieve relevant memories
     memories = await memory_engine.retrieve_relevant_memories(user_id, request.message)
+    obs.record_memory_retrieval(len(memories) if memories else 0)
     
     local_model = _is_local_model(request.provider)
 
@@ -341,11 +348,27 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
             "IMPORTANT: Your final response must be PLAIN TEXT. DO NOT wrap your final answer in JSON."
         )
 
-    system_prompt = (
-        request.settings.system_prompt
-        if request.settings and request.settings.system_prompt
-        else default_prompt
-    )
+    project_instructions = None
+    if conversation.project_id:
+        project = await db.get(Project, conversation.project_id)
+        if project and project.instructions:
+            project_instructions = project.instructions
+
+    global_instructions = await get_setting_value(db, "system_instructions")
+
+    if request.settings and request.settings.system_prompt:
+        system_prompt = request.settings.system_prompt
+    else:
+        # Layer custom instructions ahead of the default prompt so the
+        # default's tool guardrails stay intact: global (all chats) first,
+        # then project-specific, then the built-in prompt.
+        parts = []
+        if global_instructions and str(global_instructions).strip():
+            parts.append(f"## User instructions (apply to all chats)\n{str(global_instructions).strip()}")
+        if project_instructions:
+            parts.append(f"## Project instructions\n{project_instructions}")
+        parts.append(default_prompt)
+        system_prompt = "\n\n".join(parts)
     
     context = await context_manager.assemble_context(
         system_prompt=system_prompt,
@@ -371,11 +394,13 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
 
     async def event_generator():
         try:
+            input_tokens = count_tokens([user_message], request.model)
+            obs.record_chat_tokens(request.provider, request.model, "input", input_tokens)
             await session_manager.append_message(
                 request.conversation_id,
                 "user",
                 request.message,
-                token_count_value=count_tokens([user_message], request.model),
+                token_count_value=input_tokens,
             )
 
             if "deep_research" in enabled_tool_names:
@@ -779,6 +804,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                             yield f"data: {json.dumps({'type': 'tool_status', 'tool_name': tool_name, 'status': 'running'})}\n\n"
                             
                             logger.info(f"Executing non-computer tool: {tool_name} with args: {tool_args}")
+                            tool_started_at = time.monotonic()
                             try:
                                 if tool_name == "search_web":
                                     tool_result_text = await web_search_tools.search_web(**tool_args)
@@ -828,12 +854,18 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                                     tool_result_text = "\n".join([c.text for c in tool_result.content])
                                 else:
                                     tool_result_text = f"Error: Tool {tool_name} is unknown."
+                                obs.record_tool_call(tool_name, "ok", time.monotonic() - tool_started_at)
+                                if tool_name == "deep_research":
+                                    obs.record_research_task("ok")
                                 logger.info(f"Tool {tool_name} executed successfully. Result length: {len(str(tool_result_text))}")
                                 logger.info(f"Tool snippet: {str(tool_result_text)[:500]}")
                                 tool_sources = _extract_tool_sources(tool_name, str(tool_result_text))
                                 if tool_sources:
                                     yield f"data: {json.dumps({'type': 'tool_sources', 'tool_name': tool_name, 'sources': tool_sources})}\n\n"
                             except Exception as e:
+                                obs.record_tool_call(tool_name, "error", time.monotonic() - tool_started_at)
+                                if tool_name == "deep_research":
+                                    obs.record_research_task("error")
                                 logger.error(f"Error executing {tool_name}: {str(e)}", exc_info=True)
                                 tool_result_text = f"Error executing {tool_name}: {str(e)}"
                             
@@ -886,14 +918,16 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                         continue
                     break
 
+            output_tokens = count_tokens(
+                [Message(role="assistant", content=total_assistant_response)],
+                request.model,
+            )
+            obs.record_chat_tokens(request.provider, request.model, "output", output_tokens)
             await session_manager.append_message(
                 request.conversation_id,
                 "assistant",
                 total_assistant_response,
-                token_count_value=count_tokens(
-                    [Message(role="assistant", content=total_assistant_response)],
-                    request.model,
-                ),
+                token_count_value=output_tokens,
             )
             await memory_engine.process_new_message(
                 user_id=user_id,
@@ -917,7 +951,32 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
         except Exception as e:
             yield f"data: {json.dumps({'error': str(e)})}\n\n"
 
-    return StreamingResponse(event_generator(), media_type="text/event-stream")
+    async def instrumented_generator():
+        # Wraps the SSE stream to record request count, time-to-first-token,
+        # total duration, and in-flight stream gauge without touching the
+        # (large) generator body above.
+        started = time.monotonic()
+        saw_first_frame = False
+        status = "ok"
+        obs.stream_started(request.provider)
+        try:
+            async for frame in event_generator():
+                if not saw_first_frame:
+                    saw_first_frame = True
+                    obs.record_chat_ttft(request.provider, request.model, time.monotonic() - started)
+                if frame.startswith('data: {"error"'):
+                    status = "error"
+                yield frame
+        except BaseException:
+            status = "error"
+            raise
+        finally:
+            obs.stream_finished(request.provider)
+            elapsed = time.monotonic() - started
+            obs.record_chat_duration(request.provider, request.model, status, elapsed)
+            obs.record_chat_request(request.provider, request.model, status)
+
+    return StreamingResponse(instrumented_generator(), media_type="text/event-stream")
 
 @router.get("/providers")
 async def list_providers():

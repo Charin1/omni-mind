@@ -1,140 +1,117 @@
 @import "tailwindcss";
 
-@theme {
-  --color-white: hsl(var(--theme-white));
-  --color-black: hsl(var(--theme-black));
+/* ============================================================
+   OmniMind warm design tokens — ported from OmniMind.dc.html
+   Theme is switched via [data-theme] on <html>.
+   ============================================================ */
+:root,
+[data-theme="dark"] {
+  --bg:#13100d; --bg-2:#1a1612; --bg-3:#221d18; --bg-4:#1e1914; --elev:#262019;
+  --line:rgba(245,235,225,.07); --line-2:rgba(245,235,225,.13);
+  --fg:#f1ece4; --fg-2:rgba(241,236,228,.64); --fg-3:rgba(241,236,228,.42); --fg-4:rgba(241,236,228,.26);
+  --accent:#e0791f; --accent-2:#f0a04a; --accent-soft:rgba(224,121,31,.13); --accent-line:rgba(224,121,31,.34);
+  --green:#5f9c6e; --amber:#d8a23f; --red:#d36b5a;
+  --on-accent:#1a1206; --on-green:#0b1410;
+  --scrim:rgba(8,6,4,.62);
+  --hover-filter:brightness(1.25);
+  --hover-filter-soft:brightness(1.1);
+  --mono: var(--font-geist-mono), ui-monospace, "SFMono-Regular", monospace;
+  color-scheme:dark;
 }
 
-:root {
-  --background: 25 20% 8%;
-  --foreground: 35 20% 90%;
-  --card: 25 20% 12%;
-  --card-foreground: 35 20% 90%;
-  --popover: 25 20% 10%;
-  --popover-foreground: 35 20% 90%;
-  --primary: 25 80% 50%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 25 25% 15%;
-  --secondary-foreground: 35 20% 90%;
-  --muted: 25 20% 20%;
-  --muted-foreground: 30 20% 60%;
-  --accent: 35 90% 50%;
-  --accent-foreground: 25 90% 10%;
-  --border: 25 20% 18%;
-  --input: 25 20% 18%;
-  --ring: 25 80% 50%;
-
-  --theme-white: 0 0% 100%;
-  --theme-black: 0 0% 0%;
+[data-theme="light"] {
+  --bg:#f3eee5; --bg-2:#ebe4d9; --bg-3:#ffffff; --bg-4:#f7f2ea; --elev:#ffffff;
+  --line:rgba(46,34,22,.14); --line-2:rgba(46,34,22,.22);
+  --fg:#241d15; --fg-2:rgba(36,29,21,.72); --fg-3:rgba(36,29,21,.55); --fg-4:rgba(36,29,21,.40);
+  --accent:#bf5e18; --accent-2:#a44f0d; --accent-soft:rgba(191,94,24,.12); --accent-line:rgba(191,94,24,.34);
+  --green:#3e7a4d; --amber:#96690f; --red:#b34733;
+  --on-accent:#fff8f0; --on-green:#f2f8f3;
+  --scrim:rgba(46,34,22,.38);
+  --hover-filter:brightness(.92) saturate(1.15);
+  --hover-filter-soft:brightness(.96);
+  color-scheme:light;
 }
 
-.light {
-  --background: 35 20% 95%;
-  --foreground: 25 15% 12%;
-  --card: 35 20% 98%;
-  --card-foreground: 25 15% 12%;
-  --popover: 35 20% 97%;
-  --popover-foreground: 25 15% 12%;
-  --primary: 25 80% 48%;
-  --primary-foreground: 0 0% 100%;
-  --secondary: 35 15% 90%;
-  --secondary-foreground: 25 15% 15%;
-  --muted: 35 12% 87%;
-  --muted-foreground: 25 10% 45%;
-  --accent: 35 90% 45%;
-  --accent-foreground: 25 90% 95%;
-  --border: 25 12% 84%;
-  --input: 25 12% 84%;
-  --ring: 25 80% 48%;
-
-  --theme-white: 25 15% 15%;
-  --theme-black: 35 20% 98%;
+html, body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  background-color: hsl(var(--background));
-  color: hsl(var(--foreground));
-  font-family: 'Inter', system-ui, -apple-system, sans-serif;
-  margin: 0;
-  padding: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-geist-sans), system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
-  transition: background-color 0.3s ease, color 0.3s ease;
+  text-rendering: optimizeLegibility;
+  transition: background-color .3s ease, color .3s ease;
 }
 
-/* Glassmorphism Classes */
-.glass {
-  background: hsl(var(--card) / 0.2);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  border: 1px solid hsl(var(--foreground) / 0.1);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
-}
-
-.glass-dark {
-  background: hsl(var(--card) / 0.6);
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  border: 1px solid hsl(var(--foreground) / 0.05);
-  transition: background-color 0.3s ease, border-color 0.3s ease, color 0.3s ease;
-}
-
-/* Custom Scrollbar */
-::-webkit-scrollbar {
-  width: 6px;
-}
-::-webkit-scrollbar-track {
-  background: transparent;
-}
+/* Scrollbars */
+::-webkit-scrollbar { width: 9px; height: 9px; }
+::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
+  background: var(--line-2);
+  border-radius: 9px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
-}
+::-webkit-scrollbar-thumb:hover { background: var(--fg-4); }
+.custom-scrollbar { scrollbar-width: thin; }
+
+::selection { background: var(--accent-soft); }
 
 /* Animations */
-@keyframes fadeIn {
-  from { opacity: 0; transform: translateY(10px); }
-  to { opacity: 1; transform: translateY(0); }
-}
+@keyframes om-fadeup { from { opacity: 0; transform: translateY(7px); } to { opacity: 1; transform: none; } }
+@keyframes om-spin { to { transform: rotate(360deg); } }
+@keyframes om-blink { 0%,100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes om-pulse { 0%,100% { opacity: 1; } 50% { opacity: .35; } }
+@keyframes om-breathe { 0%,100% { opacity: .55; transform: scale(.85); } 50% { opacity: 1; transform: scale(1); } }
 
-@keyframes shimmer {
-  0% { transform: translateX(-100%); }
-  100% { transform: translateX(100%); }
-}
+.animate-fade-in { animation: om-fadeup .3s ease both; }
+.spin { animation: om-spin 1s linear infinite; }
+.spin-slow { animation: om-spin 4s linear infinite; }
 
-@keyframes spinSlow {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
-}
+/* Theme-aware hover highlight.
+   `filter: brightness(>1)` reads as a highlight on dark surfaces but washes
+   elements out on light ones, so each theme supplies its own filter token. */
+.om-hover { transition: filter .15s ease; }
+.om-hover:hover { filter: var(--hover-filter); }
+.om-hover-soft { transition: filter .15s ease; }
+.om-hover-soft:hover { filter: var(--hover-filter-soft); }
 
-@keyframes pulseSlow {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.8; transform: scale(0.98); }
+/* Markdown answer styling (replaces the inactive `prose` classes) */
+.om-prose { font-size: 15px; line-height: 1.68; color: var(--fg); letter-spacing: -.003em; }
+.om-prose > :first-child { margin-top: 0; }
+.om-prose > :last-child { margin-bottom: 0; }
+.om-prose p { margin: 0 0 12px; }
+.om-prose h1, .om-prose h2, .om-prose h3, .om-prose h4 {
+  font-weight: 600; letter-spacing: -.01em; margin: 18px 0 9px; color: var(--fg); line-height: 1.3;
 }
-
-.animate-fade-in {
-  animation: fadeIn 0.3s ease-out forwards;
+.om-prose h1 { font-size: 19px; }
+.om-prose h2 { font-size: 16px; }
+.om-prose h3 { font-size: 14px; }
+.om-prose ul, .om-prose ol { margin: 0 0 12px; padding-left: 20px; }
+.om-prose li { margin: 4px 0; }
+.om-prose li::marker { color: var(--accent); }
+.om-prose a { color: var(--accent); text-decoration: none; }
+.om-prose a:hover { text-decoration: underline; }
+.om-prose code {
+  font-family: var(--mono); font-size: .86em;
+  background: var(--bg-3); border: 1px solid var(--line);
+  border-radius: 5px; padding: 1px 5px;
 }
-
-.animate-shimmer {
-  animation: shimmer 2.5s infinite linear;
+.om-prose pre {
+  background: var(--bg-3); border: 1px solid var(--line);
+  border-radius: 12px; padding: 14px 16px; overflow-x: auto; margin: 0 0 14px;
 }
-
-.animate-spin-slow {
-  animation: spinSlow 6s linear infinite;
+.om-prose pre code { background: none; border: none; padding: 0; font-size: 12.5px; line-height: 1.6; }
+.om-prose strong { font-weight: 600; color: var(--fg); }
+.om-prose blockquote {
+  border-left: 2px solid var(--accent-line); margin: 0 0 12px;
+  padding: 2px 0 2px 14px; color: var(--fg-2);
 }
-
-.animate-pulse-slow {
-  animation: pulseSlow 4s ease-in-out infinite;
-}
-
-/* Typography Gradient */
-.text-gradient {
-  background: linear-gradient(135deg, hsl(25, 80%, 50%), hsl(35, 90%, 50%));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-}
+.om-prose table { border-collapse: collapse; width: 100%; margin: 0 0 14px; font-size: 13px; }
+.om-prose th, .om-prose td { border: 1px solid var(--line); padding: 7px 10px; text-align: left; }
+.om-prose th { background: var(--bg-3); }
+.om-prose hr { border: none; border-top: 1px solid var(--line); margin: 16px 0; }

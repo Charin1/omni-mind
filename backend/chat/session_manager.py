@@ -24,12 +24,15 @@ class ChatSessionManager:
         provider: str,
         model: str,
         title: Optional[str] = None,
+        project_id: Optional[str] = None,
     ) -> Conversation:
         conversation = await self.db.get(Conversation, conversation_id)
         if conversation:
             conversation.user_id = user_id
             conversation.provider = provider
             conversation.model = model
+            if project_id and not conversation.project_id:
+                conversation.project_id = project_id
             conversation.updated_at = datetime.datetime.utcnow()
             await self.db.commit()
             return conversation
@@ -40,6 +43,7 @@ class ChatSessionManager:
             title=title or "New Chat",
             provider=provider,
             model=model,
+            project_id=project_id,
         )
         self.db.add(conversation)
         await self.db.commit()

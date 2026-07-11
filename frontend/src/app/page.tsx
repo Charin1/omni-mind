@@ -16,12 +16,22 @@ import {
   listMcpTools,
   updateConversation,
   deleteConversation,
+  Project,
+  listProjects,
+  createProject,
+  updateProject,
+  deleteProject,
   createMcpServer,
+  connectMcpServer,
+  deleteMcpServer,
+  startMcpOAuth,
+  getSetting,
+  putSetting,
   submitToolApproval,
 } from '@/lib/api';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Brain, Search, Clock, FileText, CheckCircle, Orbit, Server, Wrench, MessageSquare, Plus, Settings, Edit3, Trash2, X, UploadCloud, BrainCircuit, Share2, Loader2, Terminal, ShieldCheck, ShieldX, ChevronDown, ChevronUp, Copy, RotateCcw, Link2, Sun, Moon } from 'lucide-react';
+import { Brain, Search, Clock, FileText, CheckCircle, Orbit, Server, Wrench, MessageSquare, Plus, Settings, Edit3, Trash2, X, UploadCloud, BrainCircuit, Share2, Loader2, Terminal, ShieldCheck, ShieldX, ChevronDown, ChevronUp, Copy, RotateCcw, Link2, Sun, Moon, Folder, FolderOpen } from 'lucide-react';
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:8000';
@@ -31,6 +41,7 @@ interface Conversation {
   title: string;
   provider?: string;
   model?: string;
+  project_id?: string | null;
   updated_at: string;
 }
 
@@ -118,36 +129,50 @@ function ThinkingBlock({ content, isLive = false, elapsed }: { content: string; 
   }, [content, isLive]);
 
   return (
-    <div className="mb-3 rounded-2xl border border-purple-500/25 bg-purple-950/20 overflow-hidden transition-all">
+    <div
+      className="mb-3 rounded-2xl overflow-hidden transition-all border"
+      style={{ borderColor: 'var(--line)', background: 'var(--bg-2)' }}
+    >
       <button
         onClick={() => setExpanded(e => !e)}
-        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left hover:bg-purple-500/5 transition-all"
+        className="w-full flex items-center gap-2.5 px-4 py-2.5 text-left transition-all om-hover-soft"
       >
-        <div className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 ${isLive ? 'bg-purple-500/20' : 'bg-purple-500/10'}`}>
-          <BrainCircuit className={`w-3 h-3 ${isLive ? 'text-purple-400 animate-pulse' : 'text-purple-400/60'}`} />
+        <div
+          className="w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0"
+          style={{ background: 'var(--bg-3)', border: '1px solid var(--line-2)' }}
+        >
+          <BrainCircuit className={`w-3 h-3 ${isLive ? 'spin' : ''}`} style={{ color: 'var(--fg-3)' }} />
         </div>
-        <span className={`text-[11px] font-semibold tracking-wider ${isLive ? 'text-purple-300' : 'text-purple-400/60'}`}>
-          {isLive ? 'Thinking...' : elapsed !== undefined ? `Thought for ${elapsed}s` : 'Model Reasoning'}
+        <span className="text-[11px] font-semibold tracking-wider font-mono" style={{ color: 'var(--fg-2)' }}>
+          {isLive ? 'Thinking...' : elapsed !== undefined ? `Thought for ${elapsed}s` : 'Reasoning'}
         </span>
         {isLive && (
           <span className="flex gap-0.5 ml-1">
             {[0, 150, 300].map(d => (
-              <span key={d} className="w-1 h-1 rounded-full bg-purple-400 animate-bounce" style={{ animationDelay: `${d}ms` }} />
+              <span
+                key={d}
+                className="w-1 h-1 rounded-full"
+                style={{ background: 'var(--accent)', animation: 'om-pulse 1.2s ease-in-out infinite', animationDelay: `${d}ms` }}
+              />
             ))}
           </span>
         )}
         <div className="flex-1" />
-        <span className="text-[10px] text-purple-400/40 font-mono">{content.length} chars</span>
+        <span className="text-[10px] font-mono" style={{ color: 'var(--fg-4)' }}>{content.length} chars</span>
         {expanded
-          ? <ChevronUp className="w-3 h-3 text-purple-400/40 flex-shrink-0" />
-          : <ChevronDown className="w-3 h-3 text-purple-400/40 flex-shrink-0" />}
+          ? <ChevronUp className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--fg-4)' }} />
+          : <ChevronDown className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--fg-4)' }} />}
       </button>
       {expanded && (
         <div
           ref={scrollRef}
-          className="max-h-52 overflow-y-auto border-t border-purple-500/10 custom-scrollbar"
+          className="max-h-52 overflow-y-auto custom-scrollbar border-t"
+          style={{ borderColor: 'var(--line)' }}
         >
-          <pre className="text-[11.5px] text-purple-200/50 font-mono leading-relaxed whitespace-pre-wrap break-words px-4 py-3">
+          <pre
+            className="text-[11.5px] font-mono leading-relaxed whitespace-pre-wrap break-words px-4 py-3"
+            style={{ color: 'var(--fg-3)' }}
+          >
             {content || ' '}
           </pre>
         </div>
@@ -166,42 +191,55 @@ function ActivityPanel({
   const [expanded, setExpanded] = useState(true);
   const latest = events[events.length - 1];
   const sources = events.flatMap((event) => event.sources || []);
+  const dotColor: Record<ActivityEvent['kind'], string> = {
+    status: 'var(--fg-3)',
+    thinking: 'var(--fg-3)',
+    tool: 'var(--accent)',
+    research: 'var(--accent)',
+    source: 'var(--green)',
+  };
 
   if (!latest) return null;
 
   return (
-    <div className="mb-4 w-full max-w-3xl rounded-2xl border border-white/10 bg-white/[0.035] overflow-hidden">
+    <div
+      className="mb-4 w-full max-w-3xl rounded-2xl overflow-hidden border"
+      style={{ borderColor: 'var(--line)', background: 'var(--bg-2)' }}
+    >
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="w-full flex items-center gap-3 px-4 py-3 text-left hover:bg-white/[0.035] transition-colors"
+        className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors om-hover-soft"
       >
-        <div className="h-7 w-7 rounded-lg bg-accent/15 border border-accent/20 flex items-center justify-center">
-          {isLive ? <Loader2 className="h-4 w-4 animate-spin text-accent" /> : <CheckCircle className="h-4 w-4 text-accent" />}
+        <div
+          className="h-7 w-7 rounded-lg flex items-center justify-center border"
+          style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)' }}
+        >
+          {isLive ? <Loader2 className="h-4 w-4 spin" style={{ color: 'var(--accent)' }} /> : <CheckCircle className="h-4 w-4" style={{ color: 'var(--accent)' }} />}
         </div>
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] uppercase tracking-[0.18em] text-white/35 font-bold">
+          <div className="text-[11px] uppercase tracking-[0.18em] font-bold font-mono" style={{ color: 'var(--fg-4)' }}>
             {isLive ? 'Working' : 'Activity'}
           </div>
-          <div className="truncate text-sm text-white/78">{latest.label}</div>
+          <div className="truncate text-sm" style={{ color: 'var(--fg-2)' }}>{latest.label}</div>
         </div>
         {sources.length > 0 && (
-          <span className="rounded-full border border-white/10 px-2 py-1 text-[10px] text-white/45">
+          <span className="rounded-full border px-2 py-1 text-[10px] font-mono" style={{ borderColor: 'var(--line)', color: 'var(--fg-3)' }}>
             {sources.length} sources
           </span>
         )}
-        {expanded ? <ChevronUp className="h-4 w-4 text-white/35" /> : <ChevronDown className="h-4 w-4 text-white/35" />}
+        {expanded ? <ChevronUp className="h-4 w-4" style={{ color: 'var(--fg-4)' }} /> : <ChevronDown className="h-4 w-4" style={{ color: 'var(--fg-4)' }} />}
       </button>
 
       {expanded && (
-        <div className="border-t border-white/10 px-4 py-3">
+        <div className="border-t px-4 py-3" style={{ borderColor: 'var(--line)' }}>
           <div className="max-h-52 overflow-y-auto custom-scrollbar space-y-3 pr-1">
             {events.map((event) => (
               <div key={event.id} className="flex gap-3">
-                <div className="mt-1 h-2 w-2 rounded-full bg-accent/70 shadow-[0_0_8px_rgba(var(--accent),0.5)]" />
+                <div className="mt-1 h-2 w-2 rounded-full flex-shrink-0" style={{ background: dotColor[event.kind] }} />
                 <div className="min-w-0 flex-1">
-                  <div className="text-sm text-white/75">{event.label}</div>
-                  {event.detail && <div className="mt-0.5 text-xs text-white/38">{event.detail}</div>}
+                  <div className="text-sm" style={{ color: 'var(--fg-2)' }}>{event.label}</div>
+                  {event.detail && <div className="mt-0.5 text-xs font-mono" style={{ color: 'var(--fg-4)' }}>{event.detail}</div>}
                   {event.sources && event.sources.length > 0 && (
                     <div className="mt-2 flex flex-wrap gap-2">
                       {event.sources.map((source) => (
@@ -210,7 +248,8 @@ function ActivityPanel({
                           href={source.url}
                           target="_blank"
                           rel="noreferrer"
-                          className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[11px] text-white/55 hover:text-white/90 hover:border-accent/30 transition-colors"
+                          className="inline-flex max-w-[240px] items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition-colors"
+                          style={{ borderColor: 'var(--line)', background: 'var(--bg-3)', color: 'var(--fg-3)' }}
                           title={source.url}
                         >
                           <Link2 className="h-3 w-3 shrink-0" />
@@ -231,32 +270,38 @@ function ActivityPanel({
 
 function ResearchProgressBar({ message, percentage }: { message: string; percentage: number }) {
   return (
-    <div className="mb-6 rounded-3xl border border-accent/30 bg-accent/5 p-5 shadow-[0_0_40px_rgba(var(--accent),0.1)] relative overflow-hidden">
+    <div
+      className="mb-6 rounded-3xl p-5 relative overflow-hidden border"
+      style={{ borderColor: 'var(--accent-line)', background: 'var(--accent-soft)' }}
+    >
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-xl bg-accent/20 flex items-center justify-center border border-accent/30 shadow-inner">
-            <Search className="w-4 h-4 text-accent animate-spin-slow" />
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center border"
+            style={{ background: 'var(--bg)', borderColor: 'var(--accent-line)' }}
+          >
+            <Search className="w-4 h-4 spin-slow" style={{ color: 'var(--accent)' }} />
           </div>
           <div>
-            <span className="text-[10px] font-bold text-accent/50 uppercase tracking-[0.2em] block mb-0.5">Deep Research Status</span>
-            <span className="text-sm font-medium text-white/90">{message}</span>
+            <span className="text-[10px] font-bold uppercase tracking-[0.2em] block mb-0.5 font-mono" style={{ color: 'var(--accent)' }}>Deep Research Status</span>
+            <span className="text-sm font-medium" style={{ color: 'var(--fg)' }}>{message}</span>
           </div>
         </div>
         <div className="text-right">
-          <span className="text-lg font-bold text-accent tabular-nums">{percentage}%</span>
+          <span className="text-lg font-bold tabular-nums font-mono" style={{ color: 'var(--accent)' }}>{percentage}%</span>
         </div>
       </div>
-      <div className="relative h-2 w-full bg-white/5 rounded-full overflow-hidden border border-white/5">
-        <div 
-          className="absolute top-0 left-0 h-full bg-gradient-to-r from-primary/60 via-accent to-primary/60 shadow-[0_0_15px_rgba(var(--accent),0.6)] transition-all duration-700 ease-out rounded-full"
-          style={{ width: `${percentage}%` }}
+      <div className="relative h-[5px] w-full rounded-full overflow-hidden" style={{ background: 'var(--bg)' }}>
+        <div
+          className="absolute top-0 left-0 h-full transition-all duration-700 ease-out rounded-full"
+          style={{ width: `${percentage}%`, background: 'var(--accent)' }}
         />
       </div>
-      <div className="mt-3 flex items-center justify-between text-[10px] text-white/30 font-medium">
-         <span>Comprehensive Analysis in progress...</span>
+      <div className="mt-3 flex items-center justify-between text-[10px] font-medium font-mono" style={{ color: 'var(--fg-4)' }}>
+         <span>Comprehensive analysis in progress...</span>
          <span className="flex gap-1">
             {[0, 1, 2].map(i => (
-              <span key={i} className="w-1 h-1 rounded-full bg-accent animate-pulse" style={{ animationDelay: `${i * 200}ms` }} />
+              <span key={i} className="w-1 h-1 rounded-full" style={{ background: 'var(--accent)', animation: 'om-pulse 1.4s ease-in-out infinite', animationDelay: `${i * 200}ms` }} />
             ))}
          </span>
       </div>
@@ -272,17 +317,12 @@ export default function Home() {
     const saved = localStorage.getItem('omnimind-theme');
     if (saved === 'light' || saved === 'dark') {
       setTheme(saved);
-      if (saved === 'light') {
-        document.documentElement.classList.add('light');
-      } else {
-        document.documentElement.classList.remove('light');
-      }
+      document.documentElement.setAttribute('data-theme', saved);
     } else {
       const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
-      if (prefersLight) {
-        setTheme('light');
-        document.documentElement.classList.add('light');
-      }
+      const initial = prefersLight ? 'light' : 'dark';
+      setTheme(initial);
+      document.documentElement.setAttribute('data-theme', initial);
     }
   }, []);
 
@@ -290,20 +330,23 @@ export default function Home() {
     const next = theme === 'dark' ? 'light' : 'dark';
     setTheme(next);
     localStorage.setItem('omnimind-theme', next);
-    if (next === 'light') {
-      document.documentElement.classList.add('light');
-    } else {
-      document.documentElement.classList.remove('light');
-    }
+    document.documentElement.setAttribute('data-theme', next);
   };
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [activeProjectId, setActiveProjectId] = useState<string | null>(null);
+
+  useEffect(() => {
+    const saved = localStorage.getItem('omnimind-active-project');
+    if (saved) setActiveProjectId(saved);
+  }, []);
   const [userId] = useState(getOrCreateUserId);
   const [artifacts, setArtifacts] = useState<ArtifactItem[]>([]);
   const [, setTasks] = useState<TaskItem[]>([]);
   const [mcpServers, setMcpServers] = useState<McpServer[]>([]);
   const [, setMcpTools] = useState<McpTool[]>([]);
-  
+
   const [input, setInput] = useState('');
   const [isLoading, setIsLoading] = useState(false);
   const [currentResponse, setCurrentResponse] = useState('');
@@ -315,21 +358,32 @@ export default function Home() {
   const activityRef = useRef<ActivityEvent[]>([]);
   const thinkingRef = useRef('');
   const thinkStartRef = useRef<number>(0);
-  
+
   const [provider, setProvider] = useState('openai');
   const [model, setModel] = useState('gpt-5-mini');
   const [providers, setProviders] = useState<Record<string, string[]>>({});
   const [providerError, setProviderError] = useState('');
   const [isRefreshingModels, setIsRefreshingModels] = useState(false);
-  
+
   const [editingChatId, setEditingChatId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
 
+  const [projectModal, setProjectModal] = useState<{ mode: 'create' | 'edit'; project?: Project } | null>(null);
+  const [projectForm, setProjectForm] = useState({ name: '', description: '', instructions: '' });
+  const [projectError, setProjectError] = useState('');
+  const [isSavingProject, setIsSavingProject] = useState(false);
+
   const [showMcpModal, setShowMcpModal] = useState(false);
-  const [mcpForm, setMcpForm] = useState({ name: '', command: '', args: '', env: '' });
+  const [mcpForm, setMcpForm] = useState({ transport: 'stdio' as 'stdio' | 'http' | 'sse', name: '', command: '', args: '', env: '', url: '', token: '' });
   const [mcpError, setMcpError] = useState('');
   const [isAddingMcp, setIsAddingMcp] = useState(false);
-  
+  const [authorizingServerId, setAuthorizingServerId] = useState<string | null>(null);
+
+  const [showInstructionsModal, setShowInstructionsModal] = useState(false);
+  const [globalInstructions, setGlobalInstructions] = useState('');
+  const [isSavingInstructions, setIsSavingInstructions] = useState(false);
+  const [instructionsError, setInstructionsError] = useState('');
+
   const [enabledTools, setEnabledTools] = useState<string[]>(['web_search']);
   const [showToolSelector, setShowToolSelector] = useState(false);
   const [pendingApprovals, setPendingApprovals] = useState<ToolApprovalRequest[]>([]);
@@ -367,6 +421,7 @@ export default function Home() {
       const cRes = await fetch(`${API_BASE_URL}/api/conversations?user_id=${encodeURIComponent(userId)}`);
       const cData = await cRes.json();
       setConversations(cData);
+      setProjects(await listProjects(userId).catch(() => []));
       setTasks(await listTasks(userId));
       setArtifacts(await listArtifacts(userId));
       setMcpServers(await listMcpServers().catch(() => []));
@@ -422,7 +477,7 @@ export default function Home() {
       const res = await fetch(`${API_BASE_URL}/api/conversations`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ title: 'New Chat', user_id: userId })
+        body: JSON.stringify({ title: 'New Chat', user_id: userId, project_id: activeProjectId })
       });
       const newConv = await res.json();
       setConversations([newConv, ...conversations]);
@@ -481,32 +536,114 @@ export default function Home() {
     setEditingChatId(null);
   };
 
+  const selectProject = (id: string | null) => {
+    if (id === activeProjectId) return;
+    setActiveProjectId(id);
+    if (id) localStorage.setItem('omnimind-active-project', id);
+    else localStorage.removeItem('omnimind-active-project');
+    setActiveConvId(null);
+    setMessages([]);
+  };
+
+  const openProjectModal = (project?: Project) => {
+    setProjectError('');
+    setProjectForm({
+      name: project?.name || '',
+      description: project?.description || '',
+      instructions: project?.instructions || '',
+    });
+    setProjectModal(project ? { mode: 'edit', project } : { mode: 'create' });
+  };
+
+  const handleSaveProject = async () => {
+    if (!projectForm.name.trim()) {
+      setProjectError('Project name is required.');
+      return;
+    }
+    setIsSavingProject(true);
+    setProjectError('');
+    try {
+      if (projectModal?.mode === 'edit' && projectModal.project) {
+        const updated = await updateProject(projectModal.project.id, projectForm);
+        setProjects(projects.map(p => p.id === updated.id ? updated : p));
+      } else {
+        const created = await createProject({ ...projectForm, user_id: userId });
+        setProjects([created, ...projects]);
+        selectProject(created.id);
+      }
+      setProjectModal(null);
+    } catch (err: unknown) {
+      setProjectError(err instanceof Error ? err.message : 'Failed to save project');
+    }
+    setIsSavingProject(false);
+  };
+
+  const handleDeleteProject = async (id: string) => {
+    if (!window.confirm('Delete this project? Its chats will be kept and moved to All Chats.')) return;
+    try {
+      await deleteProject(id);
+      setProjects(projects.filter(p => p.id !== id));
+      setConversations(conversations.map(c => c.project_id === id ? { ...c, project_id: null } : c));
+      if (activeProjectId === id) selectProject(null);
+    } catch (err) {
+      console.error('Failed to delete project', err);
+    }
+  };
+
   const handleAddMcp = async () => {
-    if (!mcpForm.name.trim() || !mcpForm.command.trim()) return;
+    const isRemote = mcpForm.transport === 'http' || mcpForm.transport === 'sse';
+    if (!mcpForm.name.trim() || (isRemote ? !mcpForm.url.trim() : !mcpForm.command.trim())) return;
     setIsAddingMcp(true);
     setMcpError('');
     try {
-      const parsedEnv: Record<string, string> = {};
-      if (mcpForm.env.trim()) {
-         mcpForm.env.split('\n').forEach(line => {
-            const [k, ...v] = line.split('=');
-            if (k && k.trim()) parsedEnv[k.trim()] = v.join('=').trim();
-         });
+      let configJson: Record<string, unknown>;
+
+      if (isRemote) {
+        configJson = {
+          url: mcpForm.url.trim(),
+          authorization_token: mcpForm.token.trim() || undefined,
+        };
+      } else {
+        const parsedEnv: Record<string, string> = {};
+        if (mcpForm.env.trim()) {
+           mcpForm.env.split('\n').forEach(line => {
+              const [k, ...v] = line.split('=');
+              if (k && k.trim()) parsedEnv[k.trim()] = v.join('=').trim();
+           });
+        }
+        configJson = {
+          command: mcpForm.command,
+          args: mcpForm.args.split(' ').filter(a => a.trim()),
+          env: Object.keys(parsedEnv).length > 0 ? parsedEnv : undefined
+        };
       }
 
-      const configJson = {
-        command: mcpForm.command,
-        args: mcpForm.args.split(' ').filter(a => a.trim()),
-        env: Object.keys(parsedEnv).length > 0 ? parsedEnv : undefined
-      };
+      const serverId = `mcp-${Date.now()}`;
       await createMcpServer({
-        id: `mcp-${Date.now()}`,
+        id: serverId,
         name: mcpForm.name,
-        transport: 'stdio',
+        transport: mcpForm.transport,
         config_json: configJson
       });
+
+      const connectResult = await connectMcpServer(serverId);
+      if (!connectResult.connected) {
+        if (connectResult.requires_oauth) {
+          setShowMcpModal(false);
+          setMcpForm({ transport: 'stdio', name: '', command: '', args: '', env: '', url: '', token: '' });
+          setMcpServers(await listMcpServers().catch(() => []));
+          setIsAddingMcp(false);
+          await runMcpOAuthFlow(serverId, mcpForm.name);
+          return;
+        }
+        setMcpError(connectResult.reason || 'Server was added but failed to connect.');
+        setMcpServers(await listMcpServers().catch(() => []));
+        setIsAddingMcp(false);
+        return;
+      }
+
       setShowMcpModal(false);
-      setMcpForm({ name: '', command: '', args: '', env: '' });
+      setMcpForm({ transport: 'stdio', name: '', command: '', args: '', env: '', url: '', token: '' });
       setMcpServers(await listMcpServers().catch(() => []));
     } catch (err: unknown) {
       setMcpError(err instanceof Error ? err.message : 'Failed to add server');
@@ -514,16 +651,88 @@ export default function Home() {
     setIsAddingMcp(false);
   };
 
+  const handleDeleteMcp = async (serverId: string, serverName: string) => {
+    if (!window.confirm(`Remove MCP server "${serverName}"? This disconnects it and removes its tools.`)) return;
+    try {
+      await deleteMcpServer(serverId);
+      setMcpServers(await listMcpServers().catch(() => []));
+      setMcpTools(await listMcpTools().catch(() => []));
+      setEnabledTools(prev => prev.filter(name => name !== serverName));
+    } catch (err: unknown) {
+      setMcpError(err instanceof Error ? err.message : 'Failed to delete server');
+    }
+  };
+
+  const openInstructionsModal = async () => {
+    setInstructionsError('');
+    setShowInstructionsModal(true);
+    try {
+      const setting = await getSetting('system_instructions');
+      setGlobalInstructions(typeof setting.value === 'string' ? setting.value : '');
+    } catch {
+      // Leave whatever is in the textarea; saving still works.
+    }
+  };
+
+  const handleSaveInstructions = async () => {
+    setIsSavingInstructions(true);
+    setInstructionsError('');
+    try {
+      await putSetting('system_instructions', globalInstructions.trim() || null);
+      setShowInstructionsModal(false);
+    } catch (err: unknown) {
+      setInstructionsError(err instanceof Error ? err.message : 'Failed to save instructions');
+    }
+    setIsSavingInstructions(false);
+  };
+
+  // Opens the MCP server's OAuth authorization page in a popup, waits for the
+  // user to finish signing in (the backend callback closes the popup), then
+  // retries the connection. Used both right after adding a server that turns
+  // out to need OAuth, and from the standalone "Authorize" action.
+  const runMcpOAuthFlow = async (serverId: string, serverName: string) => {
+    setAuthorizingServerId(serverId);
+    setMcpError('');
+    try {
+      const { authorization_url } = await startMcpOAuth(serverId);
+      const popup = window.open(authorization_url, 'mcp-oauth', 'width=520,height=720');
+      if (!popup) {
+        setMcpError('Could not open the authorization window — please allow popups for this site and try again.');
+        return;
+      }
+
+      await new Promise<void>((resolve) => {
+        const timeoutAt = Date.now() + 5 * 60 * 1000; // give up after 5 minutes
+        const interval = setInterval(() => {
+          if (popup.closed || Date.now() > timeoutAt) {
+            clearInterval(interval);
+            resolve();
+          }
+        }, 700);
+      });
+
+      const connectResult = await connectMcpServer(serverId);
+      if (!connectResult.connected) {
+        setMcpError(connectResult.reason || `Authorization for "${serverName}" wasn't completed.`);
+      }
+      setMcpServers(await listMcpServers().catch(() => []));
+      setMcpTools(await listMcpTools().catch(() => []));
+    } catch (err: unknown) {
+      setMcpError(err instanceof Error ? err.message : 'Failed to start authorization');
+    }
+    setAuthorizingServerId(null);
+  };
+
   const submitMessage = async (messageText: string, historyOverride?: LocalMessage[]) => {
     const trimmedMessage = messageText.trim();
     if (!trimmedMessage || isLoading || !userId) return;
-    
+
     let currentId = activeConvId;
     if (!currentId) {
        const res = await fetch(`${API_BASE_URL}/api/conversations`, {
            method: 'POST',
            headers: {'Content-Type': 'application/json'},
-           body: JSON.stringify({title: trimmedMessage.slice(0, 20) + '...', user_id: userId})
+           body: JSON.stringify({title: trimmedMessage.slice(0, 20) + '...', user_id: userId, project_id: activeProjectId})
        });
        const newConv = await res.json();
        currentId = newConv.id;
@@ -561,6 +770,7 @@ export default function Home() {
       message: trimmedMessage,
       provider,
       model,
+      projectId: activeProjectId,
       history: historyForRequest,
       settings: { enabled_tools: enabledTools },
       onThinkingStart: () => {
@@ -695,45 +905,230 @@ export default function Home() {
   const modelOptions = providerOptions[provider] || [];
 
   return (
-    <div className="fixed inset-0 flex bg-background text-foreground font-sans overflow-hidden">
-      
-      {/* MCP Modal */}
-      {showMcpModal && (
-        <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm">
-           <div className="w-96 glass-dark rounded-3xl border border-white/10 p-6 shadow-2xl animate-fade-in relative overflow-hidden">
-              <button onClick={() => setShowMcpModal(false)} className="absolute top-4 right-4 text-white/40 hover:text-white transition-colors">
+    <div className="fixed inset-0 flex font-sans overflow-hidden" style={{ background: 'var(--bg)', color: 'var(--fg)' }}>
+
+      {/* Project Modal */}
+      {projectModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-sm" style={{ background: 'var(--scrim)' }}>
+           <div
+             className="w-[420px] rounded-3xl p-6 shadow-2xl animate-fade-in relative overflow-hidden border"
+             style={{ background: 'var(--elev)', borderColor: 'var(--line-2)' }}
+           >
+              <button onClick={() => setProjectModal(null)} className="absolute top-4 right-4 transition-colors" style={{ color: 'var(--fg-3)' }}>
                 <X className="w-5 h-5" />
               </button>
-              <h2 className="text-lg font-bold tracking-wide mb-1 text-white/90">Add MCP Server</h2>
-              <p className="text-xs text-white/40 mb-6">Connect local stdio executable tools.</p>
-              
+              <h2 className="text-lg font-bold tracking-wide mb-1" style={{ color: 'var(--fg)' }}>
+                {projectModal.mode === 'edit' ? 'Edit Project' : 'Create Project'}
+              </h2>
+              <p className="text-xs mb-4" style={{ color: 'var(--fg-3)' }}>
+                Group chats together and give them shared custom instructions.
+              </p>
+
               <div className="space-y-4">
                  <div>
-                   <label className="text-[10px] text-white/50 uppercase tracking-widest font-bold ml-1">Server Name</label>
-                   <input value={mcpForm.name} onChange={e => setMcpForm({...mcpForm, name: e.target.value})} placeholder="e.g., local-sqlite" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm mt-1 outline-none focus:border-accent/50 transition-all font-light" />
+                   <label className="text-[10px] uppercase tracking-widest font-bold ml-1 font-mono" style={{ color: 'var(--fg-3)' }}>Name</label>
+                   <input
+                     value={projectForm.name}
+                     onChange={e => setProjectForm({...projectForm, name: e.target.value})}
+                     placeholder="e.g., Marketing Copy"
+                     className="w-full rounded-xl px-4 py-2 text-sm mt-1 outline-none transition-all font-light border"
+                     style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+                   />
                  </div>
                  <div>
-                   <label className="text-[10px] text-white/50 uppercase tracking-widest font-bold ml-1">Command (Executable)</label>
-                   <input value={mcpForm.command} onChange={e => setMcpForm({...mcpForm, command: e.target.value})} placeholder="e.g., npx or python" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm mt-1 outline-none focus:border-accent/50 transition-all font-light" />
+                   <label className="text-[10px] uppercase tracking-widest font-bold ml-1 font-mono" style={{ color: 'var(--fg-3)' }}>Description (optional)</label>
+                   <input
+                     value={projectForm.description}
+                     onChange={e => setProjectForm({...projectForm, description: e.target.value})}
+                     placeholder="What is this project about?"
+                     className="w-full rounded-xl px-4 py-2 text-sm mt-1 outline-none transition-all font-light border"
+                     style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+                   />
                  </div>
                  <div>
-                   <label className="text-[10px] text-white/50 uppercase tracking-widest font-bold ml-1">Arguments (Space separated)</label>
-                   <input value={mcpForm.args} onChange={e => setMcpForm({...mcpForm, args: e.target.value})} placeholder="-y @modelcontextprotocol/server-sqlite" className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm mt-1 outline-none focus:border-accent/50 transition-all font-light" />
-                 </div>
-                 <div>
-                   <label className="text-[10px] text-white/50 uppercase tracking-widest font-bold ml-1">Environment Config (KEY=VALUE)</label>
-                   <textarea value={mcpForm.env} onChange={e => setMcpForm({...mcpForm, env: e.target.value})} placeholder="BRAVE_API_KEY=B_SA3d82h...&#10;GITHUB_TOKEN=ghp_..." rows={2} className="w-full bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm mt-1 outline-none focus:border-accent/50 transition-all font-light custom-scrollbar resize-none" />
+                   <label className="text-[10px] uppercase tracking-widest font-bold ml-1 font-mono" style={{ color: 'var(--fg-3)' }}>Custom Instructions</label>
+                   <textarea
+                     value={projectForm.instructions}
+                     onChange={e => setProjectForm({...projectForm, instructions: e.target.value})}
+                     placeholder="These instructions are added to the system prompt for every chat in this project. e.g., 'You are a senior copywriter. Keep answers concise and on-brand.'"
+                     rows={6}
+                     className="w-full rounded-xl px-4 py-2 text-sm mt-1 outline-none transition-all font-light custom-scrollbar resize-none border"
+                     style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+                   />
                  </div>
               </div>
 
-              {mcpError && <div className="mt-4 text-xs text-red-400 bg-red-400/10 p-2 rounded-lg border border-red-500/20">{mcpError}</div>}
+              {projectError && (
+                <div className="mt-4 text-xs p-2 rounded-lg border" style={{ color: 'var(--red)', background: 'color-mix(in srgb, var(--red) 12%, transparent)', borderColor: 'var(--red)' }}>
+                  {projectError}
+                </div>
+              )}
 
-              <button 
+              <button
+                onClick={handleSaveProject}
+                disabled={isSavingProject}
+                className="w-full mt-6 font-semibold py-2.5 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
+                style={{ background: 'var(--accent)', color: 'var(--on-accent)' }}
+              >
+                {isSavingProject && <Orbit className="w-4 h-4 spin" />}
+                <span>{isSavingProject ? 'Saving...' : projectModal.mode === 'edit' ? 'Save Changes' : 'Create Project'}</span>
+              </button>
+           </div>
+        </div>
+      )}
+
+      {/* Custom Instructions Modal */}
+      {showInstructionsModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-sm" style={{ background: 'var(--scrim)' }}>
+           <div
+             className="w-[480px] rounded-3xl p-6 shadow-2xl animate-fade-in relative overflow-hidden border"
+             style={{ background: 'var(--elev)', borderColor: 'var(--line-2)' }}
+           >
+              <button onClick={() => setShowInstructionsModal(false)} className="absolute top-4 right-4 transition-colors" style={{ color: 'var(--fg-3)' }}>
+                <X className="w-5 h-5" />
+              </button>
+              <h2 className="text-lg font-bold tracking-wide mb-1" style={{ color: 'var(--fg)' }}>Custom Instructions</h2>
+              <p className="text-xs mb-4" style={{ color: 'var(--fg-3)' }}>
+                Applied to every chat, in every project. Project instructions layer on top of these.
+              </p>
+              <textarea
+                value={globalInstructions}
+                onChange={e => setGlobalInstructions(e.target.value)}
+                placeholder={"e.g. Reply concisely. I'm a TypeScript developer — show code examples in TS.\nAlways use metric units."}
+                rows={8}
+                className="w-full rounded-xl px-4 py-3 text-sm outline-none transition-all font-light custom-scrollbar resize-none border"
+                style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+              />
+              {instructionsError && (
+                <div className="mt-3 text-xs p-2 rounded-lg border" style={{ color: 'var(--red)', background: 'color-mix(in srgb, var(--red) 12%, transparent)', borderColor: 'var(--red)' }}>
+                  {instructionsError}
+                </div>
+              )}
+              <button
+                onClick={handleSaveInstructions}
+                disabled={isSavingInstructions}
+                className="w-full mt-5 font-semibold py-2.5 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
+                style={{ background: 'var(--accent)', color: 'var(--on-accent)' }}
+              >
+                {isSavingInstructions && <Orbit className="w-4 h-4 spin" />}
+                <span>{isSavingInstructions ? 'Saving...' : 'Save Instructions'}</span>
+              </button>
+           </div>
+        </div>
+      )}
+
+      {/* MCP Modal */}
+      {showMcpModal && (
+        <div className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-sm" style={{ background: 'var(--scrim)' }}>
+           <div
+             className="w-96 rounded-3xl p-6 shadow-2xl animate-fade-in relative overflow-hidden border"
+             style={{ background: 'var(--elev)', borderColor: 'var(--line-2)' }}
+           >
+              <button onClick={() => setShowMcpModal(false)} className="absolute top-4 right-4 transition-colors" style={{ color: 'var(--fg-3)' }}>
+                <X className="w-5 h-5" />
+              </button>
+              <h2 className="text-lg font-bold tracking-wide mb-1" style={{ color: 'var(--fg)' }}>Add MCP Server</h2>
+              <p className="text-xs mb-4" style={{ color: 'var(--fg-3)' }}>Connect a local (stdio) or remote (HTTP/SSE) MCP server.</p>
+
+              <div className="flex rounded-xl p-1 mb-4 border" style={{ background: 'var(--bg-2)', borderColor: 'var(--line)' }}>
+                 {(['stdio', 'http', 'sse'] as const).map(t => (
+                   <button
+                     key={t}
+                     onClick={() => setMcpForm({...mcpForm, transport: t})}
+                     className="flex-1 text-[11px] font-semibold uppercase tracking-wider py-1.5 rounded-lg transition-all"
+                     style={mcpForm.transport === t
+                       ? { background: 'var(--accent)', color: 'var(--on-accent)' }
+                       : { color: 'var(--fg-3)' }}
+                   >
+                     {t === 'stdio' ? 'Local' : t.toUpperCase()}
+                   </button>
+                 ))}
+              </div>
+
+              <div className="space-y-4">
+                 <div>
+                   <label className="text-[10px] uppercase tracking-widest font-bold ml-1 font-mono" style={{ color: 'var(--fg-3)' }}>Server Name</label>
+                   <input
+                     value={mcpForm.name}
+                     onChange={e => setMcpForm({...mcpForm, name: e.target.value})}
+                     placeholder={mcpForm.transport === 'stdio' ? 'e.g., local-sqlite' : 'e.g., mimilabs'}
+                     className="w-full rounded-xl px-4 py-2 text-sm mt-1 outline-none transition-all font-light border"
+                     style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+                   />
+                 </div>
+                 {mcpForm.transport === 'stdio' ? (
+                   <>
+                     <div>
+                       <label className="text-[10px] uppercase tracking-widest font-bold ml-1 font-mono" style={{ color: 'var(--fg-3)' }}>Command (Executable)</label>
+                       <input
+                         value={mcpForm.command}
+                         onChange={e => setMcpForm({...mcpForm, command: e.target.value})}
+                         placeholder="e.g., npx or python"
+                         className="w-full rounded-xl px-4 py-2 text-sm mt-1 outline-none transition-all font-light border font-mono"
+                         style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+                       />
+                     </div>
+                     <div>
+                       <label className="text-[10px] uppercase tracking-widest font-bold ml-1 font-mono" style={{ color: 'var(--fg-3)' }}>Arguments (Space separated)</label>
+                       <input
+                         value={mcpForm.args}
+                         onChange={e => setMcpForm({...mcpForm, args: e.target.value})}
+                         placeholder="-y @modelcontextprotocol/server-sqlite"
+                         className="w-full rounded-xl px-4 py-2 text-sm mt-1 outline-none transition-all font-light border font-mono"
+                         style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+                       />
+                     </div>
+                     <div>
+                       <label className="text-[10px] uppercase tracking-widest font-bold ml-1 font-mono" style={{ color: 'var(--fg-3)' }}>Environment Config (KEY=VALUE)</label>
+                       <textarea
+                         value={mcpForm.env}
+                         onChange={e => setMcpForm({...mcpForm, env: e.target.value})}
+                         placeholder={"BRAVE_API_KEY=B_SA3d82h...\nGITHUB_TOKEN=ghp_..."}
+                         rows={2}
+                         className="w-full rounded-xl px-4 py-2 text-sm mt-1 outline-none transition-all font-light custom-scrollbar resize-none border font-mono"
+                         style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+                       />
+                     </div>
+                   </>
+                 ) : (
+                   <>
+                     <div>
+                       <label className="text-[10px] uppercase tracking-widest font-bold ml-1 font-mono" style={{ color: 'var(--fg-3)' }}>Server URL</label>
+                       <input
+                         value={mcpForm.url}
+                         onChange={e => setMcpForm({...mcpForm, url: e.target.value})}
+                         placeholder="https://www.mimilabs.ai/api/mcp"
+                         className="w-full rounded-xl px-4 py-2 text-sm mt-1 outline-none transition-all font-light border font-mono"
+                         style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+                       />
+                     </div>
+                     <div>
+                       <label className="text-[10px] uppercase tracking-widest font-bold ml-1 font-mono" style={{ color: 'var(--fg-3)' }}>Authorization Token (optional)</label>
+                       <input
+                         value={mcpForm.token}
+                         onChange={e => setMcpForm({...mcpForm, token: e.target.value})}
+                         placeholder="Bearer token, if the server requires one"
+                         className="w-full rounded-xl px-4 py-2 text-sm mt-1 outline-none transition-all font-light border font-mono"
+                         style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+                       />
+                     </div>
+                   </>
+                 )}
+              </div>
+
+              {mcpError && (
+                <div className="mt-4 text-xs p-2 rounded-lg border" style={{ color: 'var(--red)', background: 'color-mix(in srgb, var(--red) 12%, transparent)', borderColor: 'var(--red)' }}>
+                  {mcpError}
+                </div>
+              )}
+
+              <button
                 onClick={handleAddMcp}
                 disabled={isAddingMcp}
-                className="w-full mt-6 bg-white text-black font-semibold py-2.5 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-2 shadow-[0_0_15px_rgba(255,255,255,0.15)] disabled:opacity-50"
+                className="w-full mt-6 font-semibold py-2.5 rounded-xl hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center space-x-2 disabled:opacity-50"
+                style={{ background: 'var(--accent)', color: 'var(--on-accent)' }}
               >
-                {isAddingMcp && <Orbit className="w-4 h-4 animate-spin" />}
+                {isAddingMcp && <Orbit className="w-4 h-4 spin" />}
                 <span>{isAddingMcp ? 'Adding...' : 'Add Connection'}</span>
               </button>
            </div>
@@ -742,39 +1137,112 @@ export default function Home() {
 
 
       {/* Sidebar */}
-      <div className="w-80 glass-dark border-r border-white/10 flex flex-col p-4 z-20 h-full">
+      <div className="w-72 flex flex-col p-4 z-20 h-full border-r" style={{ background: 'var(--bg-2)', borderColor: 'var(--line)' }}>
         {/* Header */}
         <div className="flex items-center space-x-3 px-2 mb-6 flex-shrink-0">
-          <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-primary to-accent flex items-center justify-center text-lg shadow-lg">
-            <Orbit className="w-5 h-5 text-white" />
+          <div
+            className="w-8 h-8 rounded-xl flex items-center justify-center border"
+            style={{ background: 'var(--bg-3)', borderColor: 'var(--line)' }}
+          >
+            <Orbit className="w-5 h-5" style={{ color: 'var(--accent)' }} />
           </div>
-          <h1 className="text-xl font-bold text-gradient tracking-tight">OmniMind</h1>
+          <h1 className="text-xl font-bold tracking-tight" style={{ color: 'var(--fg)' }}>OmniMind</h1>
         </div>
-        
+
         {/* New Chat Button */}
-        <button 
+        <button
           onClick={handleNewChat}
-          className="w-full py-2.5 px-4 mb-5 glass hover:bg-white/10 hover:border-white/20 rounded-xl transition-all text-sm font-medium flex items-center justify-center space-x-2 border border-white/5 shadow-md flex-shrink-0">
+          className="w-full py-2.5 px-4 mb-5 rounded-xl transition-all text-sm font-medium flex items-center justify-center space-x-2 border shadow-md flex-shrink-0 om-hover-soft"
+          style={{ background: 'var(--bg-3)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+        >
           <Plus className="w-4 h-4" /> <span>New Chat</span>
         </button>
 
+        {/* Projects */}
+        <div className="mb-4 flex-shrink-0">
+          <div className="text-[10px] px-2 mb-2 uppercase tracking-[0.2em] font-bold flex items-center justify-between font-mono" style={{ color: 'var(--fg-4)' }}>
+            <div className="flex items-center space-x-2">
+              <Folder className="w-3 h-3" />
+              <span>Projects</span>
+            </div>
+            <button
+              onClick={() => openProjectModal()}
+              className="p-1 rounded-md transition-colors om-hover"
+              style={{ color: 'var(--fg-4)' }}
+              title="Create Project"
+            >
+              <Plus className="w-3 h-3" />
+            </button>
+          </div>
+          <div className="max-h-36 overflow-y-auto custom-scrollbar pr-2 space-y-1">
+            <div
+              className="group flex items-center justify-between px-3 py-2 rounded-xl text-xs cursor-pointer transition-all border"
+              style={
+                activeProjectId === null
+                  ? { background: 'var(--bg-3)', borderColor: 'var(--line-2)' }
+                  : { background: 'transparent', borderColor: 'transparent', opacity: 0.65 }
+              }
+              onMouseEnter={(e) => { if (activeProjectId !== null) e.currentTarget.style.opacity = '1'; }}
+              onMouseLeave={(e) => { if (activeProjectId !== null) e.currentTarget.style.opacity = '0.65'; }}
+              onClick={() => selectProject(null)}
+            >
+              <div className="flex items-center space-x-3 flex-1 min-w-0">
+                <MessageSquare className="w-3 h-3 flex-shrink-0" style={{ color: activeProjectId === null ? 'var(--accent)' : 'var(--fg-3)' }} />
+                <div className="truncate font-medium" style={{ color: activeProjectId === null ? 'var(--fg)' : 'var(--fg-2)' }}>All Chats</div>
+              </div>
+            </div>
+            {projects.map((p) => (
+              <div
+                key={p.id}
+                className="group flex items-center justify-between px-3 py-2 rounded-xl text-xs cursor-pointer transition-all border"
+                style={
+                  activeProjectId === p.id
+                    ? { background: 'var(--bg-3)', borderColor: 'var(--line-2)' }
+                    : { background: 'transparent', borderColor: 'transparent', opacity: 0.65 }
+                }
+                onMouseEnter={(e) => { if (activeProjectId !== p.id) e.currentTarget.style.opacity = '1'; }}
+                onMouseLeave={(e) => { if (activeProjectId !== p.id) e.currentTarget.style.opacity = '0.65'; }}
+                onClick={() => selectProject(p.id)}
+              >
+                <div className="flex items-center space-x-3 flex-1 min-w-0">
+                  {activeProjectId === p.id
+                    ? <FolderOpen className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--accent)' }} />
+                    : <Folder className="w-3 h-3 flex-shrink-0" style={{ color: 'var(--fg-3)' }} />}
+                  <div className="truncate font-medium" style={{ color: activeProjectId === p.id ? 'var(--fg)' : 'var(--fg-2)' }} title={p.description || p.name}>{p.name}</div>
+                </div>
+                <div className="hidden group-hover:flex items-center space-x-1 ml-2">
+                  <button title="Edit Project" onClick={(e) => { e.stopPropagation(); openProjectModal(p); }} className="p-1.5 rounded-lg transition-colors om-hover" style={{ color: 'var(--fg-3)' }}><Edit3 className="w-3 h-3" /></button>
+                  <button title="Delete Project" onClick={(e) => { e.stopPropagation(); handleDeleteProject(p.id); }} className="p-1.5 rounded-lg transition-colors" style={{ color: 'var(--fg-3)' }} onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--red)'; }} onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--fg-3)'; }}><Trash2 className="w-3 h-3" /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
         {/* History Area */}
         <div className="flex-1 min-h-[120px] max-h-56 flex flex-col mb-4">
-          <div className="text-[10px] text-white/30 px-2 mb-3 uppercase tracking-[0.2em] font-bold flex items-center space-x-2 flex-shrink-0">
+          <div className="text-[10px] px-2 mb-3 uppercase tracking-[0.2em] font-bold flex items-center space-x-2 flex-shrink-0 font-mono" style={{ color: 'var(--fg-4)' }}>
             <Clock className="w-3 h-3" />
             <span>History</span>
           </div>
           <div className="flex-1 overflow-y-auto custom-scrollbar pr-2 space-y-1">
-            {conversations.map((c: Conversation) => (
-              <div 
-                key={c.id} 
-                className={`group flex items-center justify-between px-3 py-2.5 rounded-xl text-xs cursor-pointer transition-all border ${activeConvId === c.id ? 'bg-white/10 border-white/20 shadow-sm' : 'hover:bg-white/5 border-transparent opacity-60 hover:opacity-100'}`}
+            {conversations.filter((c) => (c.project_id ?? null) === activeProjectId).map((c: Conversation) => (
+              <div
+                key={c.id}
+                className="group flex items-center justify-between px-3 py-2.5 rounded-xl text-xs cursor-pointer transition-all border"
+                style={
+                  activeConvId === c.id
+                    ? { background: 'var(--bg-3)', borderColor: 'var(--line-2)' }
+                    : { background: 'transparent', borderColor: 'transparent', opacity: 0.65 }
+                }
+                onMouseEnter={(e) => { if (activeConvId !== c.id) e.currentTarget.style.opacity = '1'; }}
+                onMouseLeave={(e) => { if (activeConvId !== c.id) e.currentTarget.style.opacity = '0.65'; }}
               >
                 <div className="flex items-center space-x-3 flex-1 min-w-0" onClick={() => loadConversation(c.id)}>
-                   <MessageSquare className="w-3 h-3 flex-shrink-0" />
+                   <MessageSquare className="w-3 h-3 flex-shrink-0" style={{ color: activeConvId === c.id ? 'var(--accent)' : 'var(--fg-3)' }} />
                    <div className="flex-1 min-w-0">
                      {editingChatId === c.id ? (
-                       <input 
+                       <input
                          autoFocus
                          title="Edit chat title"
                          onClick={(e) => e.stopPropagation()}
@@ -785,18 +1253,19 @@ export default function Home() {
                            if(e.key === 'Enter') handleSaveTitle(c.id);
                            if(e.key === 'Escape') setEditingChatId(null);
                          }}
-                         className="w-full bg-[#111] border border-white/20 rounded px-1.5 py-0.5 text-white outline-none focus:border-accent max-w-[150px]"
+                         className="w-full rounded px-1.5 py-0.5 outline-none max-w-[150px] border"
+                         style={{ background: 'var(--bg)', borderColor: 'var(--accent-line)', color: 'var(--fg)' }}
                        />
                      ) : (
-                       <div className="truncate font-medium">{c.title || 'Untitled Chat'}</div>
+                       <div className="truncate font-medium" style={{ color: activeConvId === c.id ? 'var(--fg)' : 'var(--fg-2)' }}>{c.title || 'Untitled Chat'}</div>
                      )}
-                     <div className="text-[10px] opacity-40 mt-0.5">{new Date(c.updated_at).toLocaleDateString()}</div>
+                     <div className="text-[10px] mt-0.5 font-mono" style={{ color: 'var(--fg-4)' }}>{new Date(c.updated_at).toLocaleDateString()}</div>
                    </div>
                 </div>
-                
+
                 <div className="hidden group-hover:flex items-center space-x-1 ml-2">
-                   <button title="Edit Title" onClick={(e) => { e.stopPropagation(); setEditingChatId(c.id); setEditingTitle(c.title || ''); }} className="p-1.5 hover:bg-white/10 rounded-lg text-white/40 hover:text-white transition-colors"><Edit3 className="w-3 h-3" /></button>
-                   <button title="Delete Chat" onClick={(e) => { e.stopPropagation(); handleDeleteChat(c.id); }} className="p-1.5 hover:bg-red-500/20 rounded-lg text-white/40 hover:text-red-400 transition-colors"><Trash2 className="w-3 h-3" /></button>
+                   <button title="Edit Title" onClick={(e) => { e.stopPropagation(); setEditingChatId(c.id); setEditingTitle(c.title || ''); }} className="p-1.5 rounded-lg transition-colors om-hover" style={{ color: 'var(--fg-3)' }}><Edit3 className="w-3 h-3" /></button>
+                   <button title="Delete Chat" onClick={(e) => { e.stopPropagation(); handleDeleteChat(c.id); }} className="p-1.5 rounded-lg transition-colors" style={{ color: 'var(--fg-3)' }} onMouseEnter={(e) => { e.currentTarget.style.color = 'var(--red)'; }} onMouseLeave={(e) => { e.currentTarget.style.color = 'var(--fg-3)'; }}><Trash2 className="w-3 h-3" /></button>
                 </div>
               </div>
             ))}
@@ -804,21 +1273,21 @@ export default function Home() {
         </div>
 
         {/* Data & MCP Areas */}
-        <div className="space-y-4 pt-4 border-t border-white/5 shrink-0">
+        <div className="space-y-4 pt-4 border-t shrink-0" style={{ borderColor: 'var(--line)' }}>
           {/* Artifacts */}
           <div>
-            <div className="text-[10px] text-white/30 px-2 mb-2 uppercase tracking-[0.2em] font-bold flex items-center justify-between">
+            <div className="text-[10px] px-2 mb-2 uppercase tracking-[0.2em] font-bold flex items-center justify-between font-mono" style={{ color: 'var(--fg-4)' }}>
               <div className="flex items-center space-x-2">
                  <FileText className="w-3 h-3" />
                  <span>Artifacts</span>
               </div>
-              <button className="text-white/20 hover:text-white transition-colors p-1 rounded-md hover:bg-white/10" title="Upload user document (mockup)">
+              <button className="p-1 rounded-md transition-colors om-hover" style={{ color: 'var(--fg-4)' }} title="Upload user document (mockup)">
                  <UploadCloud className="w-3 h-3" />
               </button>
             </div>
             <div className="space-y-2 max-h-24 overflow-y-auto custom-scrollbar pr-2">
               {artifacts.length === 0 ? (
-                <div className="text-[10px] leading-relaxed text-white/30 px-2 italic bg-black/20 rounded-lg p-2 border border-white/5">
+                <div className="text-[10px] leading-relaxed px-2 italic rounded-lg p-2 border" style={{ color: 'var(--fg-4)', background: 'var(--bg-3)', borderColor: 'var(--line)' }}>
                    No artifacts yet. Ask the AI to write a document. Alternatively, hit the upload icon to supply user knowledge files.
                 </div>
               ) : artifacts.slice(0, 3).map((artifact) => (
@@ -827,14 +1296,15 @@ export default function Home() {
                   href={`${API_BASE_URL}/artifacts/${artifact.path.split('/generated_artifacts/').pop()}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="flex items-center space-x-3 rounded-xl border border-white/10 bg-white/5 px-3 py-2 hover:bg-white/10 hover:border-white/20 transition-all group"
+                  className="flex items-center space-x-3 rounded-xl border px-3 py-2 transition-all group om-hover-soft"
+                  style={{ borderColor: 'var(--line)', background: 'var(--bg-3)' }}
                 >
-                  <div className="w-6 h-6 rounded-md bg-accent/20 flex items-center justify-center flex-shrink-0 text-accent group-hover:bg-accent/30">
+                  <div className="w-6 h-6 rounded-md flex items-center justify-center flex-shrink-0" style={{ background: 'var(--accent-soft)', color: 'var(--accent)' }}>
                     <FileText className="w-3 h-3" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[11px] truncate font-medium text-white/90">{artifact.name}</div>
-                    <div className="text-[9px] text-white/40 uppercase mt-0.5 tracking-wider">{artifact.kind}</div>
+                    <div className="text-[11px] truncate font-medium" style={{ color: 'var(--fg)' }}>{artifact.name}</div>
+                    <div className="text-[9px] uppercase mt-0.5 tracking-wider font-mono" style={{ color: 'var(--fg-4)' }}>{artifact.kind}</div>
                   </div>
                 </a>
               ))}
@@ -843,38 +1313,70 @@ export default function Home() {
 
           {/* MCP Connections */}
           <div>
-            <div className="text-[10px] text-white/30 px-2 mb-2 uppercase tracking-[0.2em] font-bold flex items-center justify-between">
+            <div className="text-[10px] px-2 mb-2 uppercase tracking-[0.2em] font-bold flex items-center justify-between font-mono" style={{ color: 'var(--fg-4)' }}>
               <div className="flex items-center space-x-2">
                  <Server className="w-3 h-3" />
                  <span>MCP Connections</span>
               </div>
-              <button onClick={() => setShowMcpModal(true)} className="text-white/40 hover:text-white transition-colors p-1 rounded-md hover:bg-white/10" title="Add Connection">
+              <button onClick={() => setShowMcpModal(true)} className="p-1 rounded-md transition-colors om-hover" style={{ color: 'var(--fg-4)' }} title="Add Connection">
                  <Plus className="w-3 h-3" />
               </button>
             </div>
             <div className="space-y-2 max-h-24 overflow-y-auto custom-scrollbar pr-2">
               {mcpServers.length === 0 ? (
-                <div className="text-[11px] text-white/20 px-2 italic">No servers connected.</div>
+                <div className="text-[11px] px-2 italic" style={{ color: 'var(--fg-4)' }}>No servers connected.</div>
               ) : mcpServers.map((server) => (
-                <div key={server.id} className="flex items-center justify-between rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-[11px]">
+                <div key={server.id} className="flex items-center justify-between rounded-xl border px-3 py-2 text-[11px]" style={{ borderColor: 'var(--line)', background: 'var(--bg-3)' }}>
                   <div className="flex items-center space-x-2 truncate">
-                     <Wrench className="w-3 h-3 text-white/50" />
-                     <span className="truncate font-medium">{server.name}</span>
+                     <Wrench className="w-3 h-3" style={{ color: 'var(--fg-3)' }} />
+                     <span className="truncate font-medium" style={{ color: 'var(--fg)' }}>{server.name}</span>
                   </div>
-                  <span className="flex h-2 w-2 rounded-full bg-green-500/80 shadow-[0_0_8px_rgba(34,197,94,0.6)]"></span>
+                  <div className="flex items-center space-x-2 shrink-0">
+                    {server.connected ? (
+                      <span className="flex h-2 w-2 rounded-full" style={{ background: 'var(--green)', boxShadow: '0 0 0 3px color-mix(in srgb, var(--green) 20%, transparent)' }}></span>
+                    ) : (
+                      <button
+                        onClick={() => runMcpOAuthFlow(server.id, server.name)}
+                        disabled={authorizingServerId === server.id}
+                        className="flex items-center space-x-1 transition-colors om-hover disabled:opacity-50"
+                        style={{ color: 'var(--amber)' }}
+                        title="Authorize connection"
+                      >
+                        {authorizingServerId === server.id ? <Orbit className="w-3 h-3 spin" /> : <ShieldCheck className="w-3 h-3" />}
+                      </button>
+                    )}
+                    <button
+                      onClick={() => handleDeleteMcp(server.id, server.name)}
+                      className="transition-colors om-hover"
+                      style={{ color: 'var(--fg-4)' }}
+                      title="Remove server"
+                    >
+                      <Trash2 className="w-3 h-3" />
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           </div>
         </div>
-        
+
         {/* Intelligence Config */}
-        <div className="space-y-4 pt-5 mt-auto border-t border-white/5 shrink-0 pb-2">
-          <div className="text-[10px] text-white/30 px-1 uppercase tracking-[0.2em] font-bold flex items-center space-x-2">
-            <Brain className="w-3 h-3" />
-            <span>Intelligence</span>
+        <div className="space-y-4 pt-5 mt-auto border-t shrink-0 pb-2" style={{ borderColor: 'var(--line)' }}>
+          <div className="text-[10px] px-1 uppercase tracking-[0.2em] font-bold flex items-center justify-between font-mono" style={{ color: 'var(--fg-4)' }}>
+            <div className="flex items-center space-x-2">
+              <Brain className="w-3 h-3" />
+              <span>Intelligence</span>
+            </div>
+            <button
+              onClick={openInstructionsModal}
+              className="p-1 rounded-md transition-colors om-hover"
+              style={{ color: 'var(--fg-4)' }}
+              title="Custom instructions (apply to every chat)"
+            >
+              <Settings className="w-3 h-3" />
+            </button>
           </div>
-          
+
           <div className="space-y-3">
             <div className="grid grid-cols-2 gap-2">
               {Object.keys(providerOptions).map((providerName: string) => (
@@ -884,7 +1386,7 @@ export default function Home() {
                   onClick={async () => {
                     const isNewProvider = provider !== providerName;
                     setProvider(providerName);
-                    
+
                     try {
                       setIsRefreshingModels(true);
                       const liveModels = await fetchProviderModels(providerName);
@@ -903,11 +1405,12 @@ export default function Home() {
                       setIsRefreshingModels(false);
                     }
                   }}
-                  className={`rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-all ${
+                  className="rounded-lg border px-2 py-1.5 text-[11px] font-medium transition-all text-left"
+                  style={
                     provider === providerName
-                      ? 'border-accent/40 bg-accent/10 text-accent shadow-sm'
-                      : 'border-white/10 bg-white/5 text-white/60 hover:bg-white/10'
-                  }`}
+                      ? { borderColor: 'var(--accent-line)', background: 'var(--accent-soft)', color: 'var(--accent)' }
+                      : { borderColor: 'var(--line)', background: 'var(--bg-3)', color: 'var(--fg-2)' }
+                  }
                 >
                   {providerName}
                 </button>
@@ -920,10 +1423,11 @@ export default function Home() {
               <select
                 value={model}
                 onChange={(e: React.ChangeEvent<HTMLSelectElement>) => setModel(e.target.value)}
-                className="flex-1 min-w-0 rounded-lg border border-white/10 bg-white/5 p-2 text-xs outline-none transition-all focus:border-accent/50 focus:ring-1 focus:ring-accent/50 text-white/80"
+                className="flex-1 min-w-0 rounded-lg border p-2 text-xs outline-none transition-all font-mono"
+                style={{ borderColor: 'var(--line)', background: 'var(--bg-3)', color: 'var(--fg-2)' }}
               >
                 {modelOptions.map((modelName: string) => (
-                  <option key={modelName} value={modelName} className="bg-[#121418]">
+                  <option key={modelName} value={modelName} style={{ background: 'var(--elev)', color: 'var(--fg)' }}>
                     {modelName}
                   </option>
                 ))}
@@ -946,63 +1450,90 @@ export default function Home() {
                     setIsRefreshingModels(false);
                   }
                 }}
-                className="flex-shrink-0 p-2 rounded-lg border border-white/10 bg-white/5 text-white/40 hover:text-white hover:bg-white/10 hover:border-white/20 transition-all disabled:opacity-30"
+                className="flex-shrink-0 p-2 rounded-lg border transition-all disabled:opacity-30 om-hover-soft"
+                style={{ borderColor: 'var(--line)', background: 'var(--bg-3)', color: 'var(--fg-3)' }}
               >
                 {isRefreshingModels
-                  ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ? <Loader2 className="w-3.5 h-3.5 spin" />
                   : <span className="text-xs font-bold">↻</span>
                 }
               </button>
             </div>
             {providerError ? (
-              <p className="text-[10px] text-red-400/80">{providerError}</p>
+              <p className="text-[10px]" style={{ color: 'var(--red)' }}>{providerError}</p>
             ) : null}
           </div>
         </div>
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col relative bg-background/50 overflow-hidden min-w-0 h-full">
-        {/* Background Decorative Gradients */}
-        <div className="absolute top-0 right-0 w-[600px] h-[600px] bg-primary/20 rounded-full blur-[120px] -mr-40 -mt-40 z-0 pointer-events-none"></div>
-        <div className="absolute bottom-0 left-0 w-[500px] h-[500px] bg-accent/10 rounded-full blur-[100px] -ml-40 -mb-40 z-0 pointer-events-none"></div>
+      <div className="flex-1 flex flex-col relative overflow-hidden min-w-0 h-full" style={{ background: 'var(--bg)' }}>
+        {/* Background Decorative Gradient */}
+        <div
+          className="absolute top-0 right-0 w-[520px] h-[420px] z-0 pointer-events-none"
+          style={{ background: 'radial-gradient(circle, var(--accent-soft), transparent 70%)', opacity: 0.5, marginRight: '-120px', marginTop: '-160px' }}
+        ></div>
 
         {/* Header */}
-        <header className="h-16 shrink-0 border-b border-foreground/5 flex items-center justify-between px-8 glass-dark z-10 backdrop-blur-md">
-          <div className="flex items-center space-x-3">
-             <div className="w-8 h-8 rounded-xl glass flex items-center justify-center border border-white/10 shadow-[0_0_15px_rgba(255,255,255,0.1)]">
-                <BrainCircuit className="w-5 h-5 text-white" />
-             </div>
-             <h1 className="text-xl font-semibold bg-clip-text text-transparent bg-gradient-to-r from-white to-white/70 tracking-wide">
+        <header
+          className="h-14 shrink-0 border-b flex items-center justify-between px-6 z-10 backdrop-blur-md"
+          style={{ borderColor: 'var(--line)', background: 'color-mix(in srgb, var(--bg) 80%, transparent)' }}
+        >
+          <div className="flex items-center gap-3 min-w-0">
+             <div className="text-[15px] font-semibold tracking-tight truncate max-w-[42vw]" style={{ color: 'var(--fg)' }}>
                {currentConversation ? currentConversation.title : 'New Session'}
-             </h1>
-          </div>
-          <div className="flex items-center space-x-4">
-             {currentConversation && (
-               <div className="flex items-center space-x-2 mr-4">
-                  <div className="w-2 h-2 rounded-full bg-accent shadow-[0_0_8px_rgba(var(--accent),0.8)] animate-pulse"></div>
-                  <span className="text-xs font-semibold text-accent/80 tracking-widest uppercase">Live</span>
+             </div>
+             {activeProjectId && projects.find(p => p.id === activeProjectId) && (
+               <div
+                 className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10.5px] font-semibold whitespace-nowrap border"
+                 style={{ background: 'var(--accent-soft)', borderColor: 'var(--accent-line)', color: 'var(--accent)' }}
+                 title="Active project — its custom instructions apply to chats here"
+               >
+                 <FolderOpen className="w-3 h-3" />
+                 <span className="truncate max-w-[140px]">{projects.find(p => p.id === activeProjectId)?.name}</span>
                </div>
              )}
-            <button 
+             <div
+               className="flex items-center gap-2 px-2.5 py-1 rounded-lg border text-[10.5px] font-mono whitespace-nowrap"
+               style={{ background: 'var(--bg-3)', borderColor: 'var(--line)', color: 'var(--fg-3)' }}
+             >
+               <span className="w-[5px] h-[5px] rounded-full" style={{ background: 'var(--accent)' }}></span>
+               {provider} · {model}
+             </div>
+          </div>
+          <div className="flex items-center gap-1.5">
+             {currentConversation && (
+               <div className="flex items-center gap-2 px-2.5 mr-2">
+                  <span
+                    className="w-1.5 h-1.5 rounded-full"
+                    style={{ background: isLoading ? 'var(--accent)' : 'var(--green)', animation: isLoading ? 'om-breathe 1.3s ease-in-out infinite' : 'none' }}
+                  ></span>
+                  <span className="text-[9.5px] font-bold tracking-[0.16em] uppercase font-mono" style={{ color: isLoading ? 'var(--accent)' : 'var(--green)' }}>
+                    {isLoading ? 'Live' : 'Ready'}
+                  </span>
+               </div>
+             )}
+            <button
               onClick={toggleTheme}
-              className="p-2.5 rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-all shadow-sm flex items-center justify-center"
+              className="w-[34px] h-[34px] rounded-lg transition-all flex items-center justify-center border om-hover-soft"
+              style={{ borderColor: 'transparent', color: 'var(--fg-3)' }}
               title={theme === 'dark' ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
             >
                 {theme === 'dark' ? (
-                  <Sun className="w-4.5 h-4.5 text-amber-400" />
+                  <Sun className="w-4 h-4" style={{ color: 'var(--accent)' }} />
                 ) : (
-                  <Moon className="w-4.5 h-4.5 text-indigo-400" />
+                  <Moon className="w-4 h-4" style={{ color: 'var(--accent)' }} />
                 )}
             </button>
-            <button 
+            <button
               onClick={() => alert('Settings module coming soon!')}
-              className="p-2.5 rounded-xl hover:bg-white/10 text-white/60 hover:text-white transition-all shadow-sm"
+              className="w-[34px] h-[34px] rounded-lg transition-all flex items-center justify-center om-hover-soft"
+              style={{ color: 'var(--fg-3)' }}
             >
-                <Settings className="w-4.5 h-4.5" />
+                <Settings className="w-4 h-4" />
             </button>
-            <div className="h-6 w-px bg-white/10"></div>
-            <button 
+            <div className="w-px h-[22px] mx-1" style={{ background: 'var(--line)' }}></div>
+            <button
               onClick={() => {
                 if (messages.length === 0) return alert('No messages to share yet!');
                 const chatText = messages.map(m => `${m.role.toUpperCase()}: ${m.content}`).join('\n\n');
@@ -1010,10 +1541,11 @@ export default function Home() {
                   .then(() => alert('Conversation transcript copied to clipboard!'))
                   .catch(() => alert('Failed to copy to clipboard.'));
               }}
-              className="flex items-center space-x-2 bg-white/10 hover:bg-white/20 px-4 py-2 rounded-xl text-sm font-medium transition-all border border-white/5 hover:border-white/20 hover:shadow-lg backdrop-blur-xl"
+              className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-[12.5px] font-medium transition-all border om-hover-soft"
+              style={{ background: 'var(--bg-3)', borderColor: 'var(--line)', color: 'var(--fg)' }}
             >
                <span>Share</span>
-               <Share2 className="w-4 h-4" />
+               <Share2 className="w-3.5 h-3.5" />
             </button>
           </div>
         </header>
@@ -1022,13 +1554,16 @@ export default function Home() {
         <div className="flex-1 overflow-y-auto px-4 md:px-8 py-6 custom-scrollbar z-10 scroll-smooth min-h-0">
           <div className="max-w-4xl mx-auto min-h-full flex flex-col">
             {messages.length === 0 && !isLoading ? (
-              <div className="flex-1 flex flex-col items-center justify-center space-y-6 opacity-40 select-none m-auto pb-20">
-                <div className="w-24 h-24 rounded-3xl glass flex items-center justify-center text-4xl shadow-[0_0_30px_rgba(var(--accent),0.1)] border border-foreground/10">
-                  <Orbit className="w-12 h-12 text-foreground/80" />
+              <div className="flex-1 flex flex-col items-center justify-center space-y-6 select-none m-auto pb-20">
+                <div
+                  className="w-16 h-16 rounded-2xl flex items-center justify-center border"
+                  style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--accent)' }}
+                >
+                  <Orbit className="w-9 h-9" />
                 </div>
-                <div className="text-center space-y-3">
-                    <p className="text-3xl font-extralight tracking-[0.15em] bg-clip-text text-transparent bg-gradient-to-b from-foreground to-foreground/50">OmniMind</p>
-                    <p className="text-xs text-foreground/50 uppercase tracking-[0.3em] font-semibold">Universal Intelligence Engine</p>
+                <div className="text-center space-y-2">
+                    <p className="text-[22px] font-semibold tracking-tight" style={{ color: 'var(--fg)' }}>How can I help today?</p>
+                    <p className="text-[11px] uppercase tracking-[0.22em] font-semibold font-mono" style={{ color: 'var(--fg-4)' }}>Universal intelligence engine</p>
                 </div>
               </div>
             ) : (
@@ -1041,38 +1576,41 @@ export default function Home() {
                   return (
                   <div key={i} className={`group/message flex ${m.role === 'user' ? 'justify-end' : 'justify-start'} animate-fade-in`}>
                     <div className={`${m.role === 'user' ? 'max-w-[90%] md:max-w-[72%]' : 'w-full max-w-3xl'}`}>
-                      <div className={`${
-                          m.role === 'user' 
-                          ? 'rounded-3xl bg-white/[0.08] border border-white/10 px-5 py-3.5 text-white shadow-sm' 
-                          : `px-1 py-1 prose ${theme === 'dark' ? 'prose-invert' : ''} prose-p:leading-relaxed prose-pre:bg-background/50 prose-pre:border prose-pre:border-foreground/10 prose-a:text-accent prose-a:no-underline hover:prose-a:underline`
-                      }`}>
-                        {m.role === 'user' ? (
-                           <div className="text-[15px] font-medium leading-relaxed whitespace-pre-wrap tracking-wide">{displayContent}</div>
-	                        ) : (
-	                           <div className="text-[15px] leading-7 font-normal tracking-wide markdown-body text-white/88">
-                              {lm.activity && lm.activity.length > 0 && <ActivityPanel events={lm.activity} isLive={false} />}
-	                              {lm.thinking && <ThinkingBlock content={lm.thinking} elapsed={lm.thinkSecs} />}
-	                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>
-	                           </div>
-                        )}
-                      </div>
-                      <div className={`mt-2 flex items-center gap-1 opacity-0 group-hover/message:opacity-100 focus-within:opacity-100 transition-opacity ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
+                      {m.role === 'user' ? (
+                        <div
+                          className="rounded-2xl px-4 py-3 text-[14.5px] font-medium leading-relaxed whitespace-pre-wrap tracking-wide border"
+                          style={{ background: 'var(--bg-3)', borderColor: 'var(--line)', color: 'var(--fg)' }}
+                        >
+                          {displayContent}
+                        </div>
+                      ) : (
+                        <div className="px-1 py-1">
+                          {lm.activity && lm.activity.length > 0 && <ActivityPanel events={lm.activity} isLive={false} />}
+                          {lm.thinking && <ThinkingBlock content={lm.thinking} elapsed={lm.thinkSecs} />}
+                          <div className="om-prose">
+                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{displayContent}</ReactMarkdown>
+                          </div>
+                        </div>
+                      )}
+                      <div className={`mt-1.5 flex items-center gap-1 opacity-0 group-hover/message:opacity-100 focus-within:opacity-100 transition-opacity ${m.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                         <button
                           type="button"
                           title={copiedMessageIndex === i ? 'Copied' : 'Copy'}
                           onClick={() => handleCopyMessage(lm, i)}
-                          className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-white/35 hover:text-white/90 hover:bg-white/10 transition-colors"
+                          className="h-7 w-7 inline-flex items-center justify-center rounded-lg transition-colors om-hover"
+                          style={{ color: 'var(--fg-4)' }}
                         >
-                          {copiedMessageIndex === i ? <CheckCircle className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+                          {copiedMessageIndex === i ? <CheckCircle className="w-3.5 h-3.5" style={{ color: 'var(--green)' }} /> : <Copy className="w-3.5 h-3.5" />}
                         </button>
                         <button
                           type="button"
                           title="Rerun"
                           onClick={() => handleRerunMessage(i)}
                           disabled={isLoading}
-                          className="h-8 w-8 inline-flex items-center justify-center rounded-lg text-white/35 hover:text-white/90 hover:bg-white/10 transition-colors disabled:opacity-30"
+                          className="h-7 w-7 inline-flex items-center justify-center rounded-lg transition-colors disabled:opacity-30 om-hover"
+                          style={{ color: 'var(--fg-4)' }}
                         >
-                          <RotateCcw className="w-4 h-4" />
+                          <RotateCcw className="w-3.5 h-3.5" />
                         </button>
                       </div>
                     </div>
@@ -1085,7 +1623,7 @@ export default function Home() {
                     <ActivityPanel events={activityEvents} isLive={isLoading} />
                   </div>
                 )}
-                
+
                 {researchProgress && (
                   <div className="max-w-4xl mx-auto w-full mb-4">
                     <ResearchProgressBar message={researchProgress.message} percentage={researchProgress.percentage} />
@@ -1094,34 +1632,40 @@ export default function Home() {
 
                 {toolActivity && !researchProgress && (
                   <div className="flex justify-start animate-fade-in">
-                    <div className="inline-flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.04] px-3 py-2 text-xs text-white/55">
-                      <Loader2 className="w-3.5 h-3.5 animate-spin text-accent" />
+                    <div
+                      className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-xs"
+                      style={{ borderColor: 'var(--line)', background: 'var(--bg-2)', color: 'var(--fg-3)' }}
+                    >
+                      <Loader2 className="w-3.5 h-3.5 spin" style={{ color: 'var(--accent)' }} />
                       <span>Using {toolActivity.toolName.replaceAll('_', ' ')}</span>
                     </div>
                   </div>
                 )}
-                
+
                 {(currentThinking || currentResponse) && (
                   <div className="flex justify-start animate-fade-in">
-                    <div className={`w-full max-w-3xl px-1 py-1 prose ${theme === 'dark' ? 'prose-invert' : ''} prose-p:leading-relaxed prose-pre:bg-background/50 prose-pre:border prose-pre:border-foreground/10 prose-a:text-accent prose-a:no-underline`}>
-                      <div className="text-[15px] leading-7 font-normal tracking-wide markdown-body relative text-white/88">
+                    <div className="w-full max-w-3xl px-1 py-1">
+                      <div className="relative">
                         {currentThinking && <ThinkingBlock content={currentThinking} isLive={isThinking} />}
                         {currentResponse && (
                           currentResponse.includes('{"name":') && currentResponse.includes('"arguments":') ? (
-                            <div className="flex items-center space-x-3 text-accent animate-pulse opacity-80 pt-2 pb-1">
-                               <Loader2 className="w-4 h-4 animate-spin" />
+                            <div className="flex items-center space-x-3 pt-2 pb-1" style={{ color: 'var(--accent)' }}>
+                               <Loader2 className="w-4 h-4 spin" />
                                <span className="text-xs font-semibold tracking-wider font-mono uppercase">Agent Generating Tool Call...</span>
                             </div>
                           ) : (
-                            <>
+                            <div className="om-prose relative">
                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentResponse}</ReactMarkdown>
-                               <span className="inline-block w-2.5 h-4 ml-1 mt-1 bg-foreground/80 animate-pulse rounded-sm align-middle shadow-[0_0_8px_rgba(var(--foreground),0.5)]"></span>
-                            </>
+                               <span
+                                 className="inline-block w-2.5 h-4 ml-1 mt-1 rounded-sm align-middle"
+                                 style={{ background: 'var(--accent)', animation: 'om-blink 1s step-start infinite' }}
+                               ></span>
+                            </div>
                           )
                         )}
                         {isThinking && !currentResponse && (
-                          <div className="flex items-center space-x-2 text-purple-300/60 pt-1">
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          <div className="flex items-center space-x-2 pt-1" style={{ color: 'var(--fg-3)' }}>
+                            <Loader2 className="w-3.5 h-3.5 spin" />
                             <span className="text-[11px] font-medium tracking-wide">Processing...</span>
                           </div>
                         )}
@@ -1129,42 +1673,51 @@ export default function Home() {
                     </div>
                   </div>
                 )}
-                
+
                 {/* Tool Approval Cards */}
                 {pendingApprovals.map((approval) => {
                   const isExpanded = expandedApprovals.has(approval.approval_id);
                   const detailLines = (approval.detail || '').split('\n');
                   const isLong = detailLines.length > 12 || (approval.detail || '').length > 600;
-                  const displayDetail = (!isLong || isExpanded) 
-                    ? approval.detail 
+                  const displayDetail = (!isLong || isExpanded)
+                    ? approval.detail
                     : detailLines.slice(0, 10).join('\n') + '\n...';
-                  
+
                   return (
                     <div key={approval.approval_id} className="flex justify-start animate-fade-in">
-                      <div className="max-w-[90%] md:max-w-[85%] rounded-3xl border-2 border-amber-500/40 bg-gradient-to-br from-amber-500/10 via-amber-900/10 to-transparent backdrop-blur-xl shadow-[0_0_30px_rgba(245,158,11,0.15)] overflow-hidden">
+                      <div
+                        className="max-w-[90%] md:max-w-[85%] rounded-2xl overflow-hidden border"
+                        style={{ borderColor: 'var(--amber)', background: 'color-mix(in srgb, var(--amber) 9%, var(--bg-2))' }}
+                      >
                         {/* Header */}
-                        <div className="flex items-center space-x-3 px-6 pt-5 pb-3">
-                          <div className="w-10 h-10 rounded-2xl bg-amber-500/20 flex items-center justify-center border border-amber-500/30 shadow-lg">
-                            <Terminal className="w-5 h-5 text-amber-400" />
+                        <div className="flex items-center space-x-3 px-5 pt-4 pb-3">
+                          <div
+                            className="w-9 h-9 rounded-xl flex items-center justify-center border"
+                            style={{ background: 'color-mix(in srgb, var(--amber) 18%, transparent)', borderColor: 'var(--amber)' }}
+                          >
+                            <Terminal className="w-4.5 h-4.5" style={{ color: 'var(--amber)' }} />
                           </div>
                           <div className="flex-1 min-w-0">
-                            <div className="text-sm font-bold text-amber-200 tracking-wide">
+                            <div className="text-sm font-bold tracking-wide" style={{ color: 'var(--fg)' }}>
                               {approval.tool_icon} {approval.tool_label}
                             </div>
-                            <div className="text-[11px] text-amber-300/60 mt-0.5 tracking-wide font-medium truncate">
+                            <div className="text-[11px] mt-0.5 tracking-wide font-medium truncate font-mono" style={{ color: 'var(--fg-3)' }}>
                               {approval.summary}
                             </div>
                           </div>
-                          <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-amber-500/20 border border-amber-500/30">
-                            <div className="w-2 h-2 rounded-full bg-amber-400 animate-pulse shadow-[0_0_6px_rgba(245,158,11,0.8)]"></div>
-                            <span className="text-[9px] font-bold text-amber-300 uppercase tracking-[0.15em]">Awaiting Approval</span>
+                          <div
+                            className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full border"
+                            style={{ background: 'color-mix(in srgb, var(--amber) 16%, transparent)', borderColor: 'var(--amber)' }}
+                          >
+                            <div className="w-2 h-2 rounded-full" style={{ background: 'var(--amber)', animation: 'om-pulse 1.4s ease-in-out infinite' }}></div>
+                            <span className="text-[9px] font-bold uppercase tracking-[0.15em] font-mono" style={{ color: 'var(--amber)' }}>Awaiting Approval</span>
                           </div>
                         </div>
-                        
+
                         {/* Content preview */}
-                        <div className="px-6 pb-3">
-                          <div className="relative rounded-xl bg-black/40 border border-white/10 overflow-hidden">
-                            <pre className={`text-[12px] text-white/80 font-mono leading-relaxed p-4 overflow-x-auto custom-scrollbar whitespace-pre-wrap break-words ${isLong && !isExpanded ? 'max-h-[240px] overflow-y-hidden' : 'max-h-[500px] overflow-y-auto'}`}>
+                        <div className="px-5 pb-3">
+                          <div className="relative rounded-xl overflow-hidden border" style={{ background: 'var(--bg)', borderColor: 'var(--line)' }}>
+                            <pre className={`text-[12px] font-mono leading-relaxed p-4 overflow-x-auto custom-scrollbar whitespace-pre-wrap break-words ${isLong && !isExpanded ? 'max-h-[240px] overflow-y-hidden' : 'max-h-[500px] overflow-y-auto'}`} style={{ color: 'var(--fg-2)' }}>
                               {displayDetail}
                             </pre>
                             {isLong && (
@@ -1177,7 +1730,8 @@ export default function Home() {
                                     return next;
                                   });
                                 }}
-                                className="w-full flex items-center justify-center space-x-1.5 py-2 bg-gradient-to-t from-black/80 to-black/20 text-amber-300/80 hover:text-amber-200 text-[11px] font-semibold tracking-wide transition-colors border-t border-white/5"
+                                className="w-full flex items-center justify-center space-x-1.5 py-2 text-[11px] font-semibold tracking-wide transition-colors border-t om-hover-soft"
+                                style={{ borderColor: 'var(--line)', color: 'var(--amber)' }}
                               >
                                 {isExpanded ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
                                 <span>{isExpanded ? 'Show Less' : `Show Full Content (${detailLines.length} lines)`}</span>
@@ -1185,27 +1739,29 @@ export default function Home() {
                             )}
                           </div>
                         </div>
-                        
+
                         {/* Action buttons */}
-                        <div className="flex items-center space-x-3 px-6 pb-5 pt-1">
+                        <div className="flex items-center space-x-3 px-5 pb-4 pt-1">
                           <button
                             onClick={async () => {
-                              try { await submitToolApproval(approval.approval_id, true); } 
+                              try { await submitToolApproval(approval.approval_id, true); }
                               catch (e) { console.error('Approval submit failed', e); }
                             }}
-                            className="flex-1 flex items-center justify-center space-x-2 py-3 rounded-2xl bg-gradient-to-r from-green-500 to-emerald-500 text-white font-bold text-sm tracking-wide hover:scale-[1.02] active:scale-[0.98] transition-all shadow-lg shadow-green-500/25 hover:shadow-green-500/40"
+                            className="flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-xl font-bold text-sm tracking-wide hover:scale-[1.02] active:scale-[0.98] transition-all"
+                            style={{ background: 'var(--green)', color: 'var(--on-green)' }}
                           >
-                            <ShieldCheck className="w-4.5 h-4.5" />
+                            <ShieldCheck className="w-4 h-4" />
                             <span>Approve</span>
                           </button>
                           <button
                             onClick={async () => {
-                              try { await submitToolApproval(approval.approval_id, false, 'User rejected'); } 
+                              try { await submitToolApproval(approval.approval_id, false, 'User rejected'); }
                               catch (e) { console.error('Reject submit failed', e); }
                             }}
-                            className="flex-1 flex items-center justify-center space-x-2 py-3 rounded-2xl bg-white/5 border border-white/15 text-white/70 font-bold text-sm tracking-wide hover:bg-red-500/15 hover:border-red-500/30 hover:text-red-300 hover:scale-[1.02] active:scale-[0.98] transition-all"
+                            className="flex-1 flex items-center justify-center space-x-2 py-2.5 rounded-xl font-bold text-sm tracking-wide hover:scale-[1.02] active:scale-[0.98] transition-all border"
+                            style={{ background: 'var(--bg-3)', borderColor: 'var(--line)', color: 'var(--fg-2)' }}
                           >
-                            <ShieldX className="w-4.5 h-4.5" />
+                            <ShieldX className="w-4 h-4" />
                             <span>Reject</span>
                           </button>
                         </div>
@@ -1223,8 +1779,10 @@ export default function Home() {
         {/* Input area */}
         <div className="p-4 md:p-6 pt-0 z-20 shrink-0">
           <div className="max-w-4xl mx-auto relative w-full">
-             <div className="absolute inset-0 bg-background/80 rounded-[2.5rem] blur-xl z-0 -m-4 pointer-events-none"></div>
-             <div className="relative glass-dark rounded-[2.2rem] flex flex-col p-2 border border-white/10 focus-within:border-accent/40 focus-within:shadow-[0_0_30px_rgba(var(--accent),0.2)] transition-all duration-500 shadow-2xl backdrop-blur-xl">
+             <div
+               className="relative rounded-[1.6rem] flex flex-col p-2 border transition-all duration-300 shadow-2xl"
+               style={{ background: 'var(--bg-2)', borderColor: 'var(--line)' }}
+             >
                 <textarea
                   value={input}
                   onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setInput(e.target.value)}
@@ -1235,125 +1793,159 @@ export default function Home() {
                     }
                   }}
                   placeholder="Ask anything or request tasks..."
-                  className="w-full bg-transparent border-none outline-none px-6 pt-5 pb-3 text-[15px] font-light tracking-wide resize-none min-h-[64px] custom-scrollbar focus:ring-0 text-white/90 placeholder-white/30"
+                  className="w-full bg-transparent border-none outline-none px-5 pt-4 pb-2 text-[14.5px] font-light tracking-wide resize-none min-h-[56px] custom-scrollbar focus:ring-0"
+                  style={{ color: 'var(--fg)' }}
                   rows={1}
                 />
-                <div className="flex justify-between items-center px-4 pb-2 pt-1 w-full relative">
+                <div className="flex justify-between items-center px-3 pb-2 pt-1 w-full relative">
                    <div className="flex items-center space-x-2 relative">
-                     <button 
+                     <button
                        onClick={() => setShowToolSelector(!showToolSelector)}
                        title="Select tools to run"
-                       className={`flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border ${
-                         enabledTools.length > 0 
-                          ? 'bg-accent/20 text-accent border-accent/30 shadow-[0_0_10px_rgba(var(--accent),0.2)]' 
-                          : 'bg-white/5 text-white/40 border-white/5 hover:bg-white/10 hover:text-white/70'
-                       }`}
+                       className="flex items-center space-x-2 px-3 py-1.5 rounded-full text-xs font-semibold transition-all border"
+                       style={
+                         enabledTools.length > 0
+                           ? { background: 'var(--accent-soft)', color: 'var(--accent)', borderColor: 'var(--accent-line)' }
+                           : { background: 'var(--bg-3)', color: 'var(--fg-3)', borderColor: 'var(--line)' }
+                       }
                      >
                        <Wrench className="w-3.5 h-3.5" />
                        <span>{enabledTools.length} {enabledTools.length === 1 ? 'Tool' : 'Tools'} Enabled</span>
                      </button>
-                     
+
                      {showToolSelector && (
-                       <div className="absolute bottom-12 left-0 w-64 glass-dark border border-white/10 rounded-2xl p-4 shadow-[0_0_40px_rgba(0,0,0,0.8)] z-50 flex flex-col space-y-3 animate-fade-in backdrop-blur-3xl">
+                       <div
+                         className="absolute bottom-12 left-0 w-64 rounded-2xl p-4 shadow-2xl z-50 flex flex-col space-y-3 animate-fade-in border"
+                         style={{ background: 'var(--elev)', borderColor: 'var(--line-2)' }}
+                       >
                          <div className="flex items-center justify-between mb-1">
-                           <span className="text-[10px] font-bold text-white/50 uppercase tracking-[0.15em]">Select Integrations</span>
-                           <button onClick={() => setShowToolSelector(false)} className="text-white/30 hover:text-white"><X className="w-3.5 h-3.5"/></button>
+                           <span className="text-[10px] font-bold uppercase tracking-[0.15em] font-mono" style={{ color: 'var(--fg-3)' }}>Select Integrations</span>
+                           <button onClick={() => setShowToolSelector(false)} style={{ color: 'var(--fg-4)' }}><X className="w-3.5 h-3.5"/></button>
                          </div>
-                         
-                         <label className="flex items-center space-x-3 p-2 rounded-xl hover:bg-white/5 cursor-pointer transition-all border border-transparent hover:border-white/5">
-                           <input 
-                             type="checkbox" 
+
+                         <label className="flex items-center space-x-3 p-2 rounded-xl cursor-pointer transition-all border border-transparent om-hover-soft" style={{ background: 'transparent' }}>
+                           <input
+                             type="checkbox"
                              checked={enabledTools.includes("web_search")}
                              onChange={(e) => {
                                if (e.target.checked) setEnabledTools([...enabledTools, "web_search"]);
                                else setEnabledTools(enabledTools.filter(t => t !== "web_search"));
                              }}
-                             className="w-4 h-4 text-accent border-white/20 rounded focus:ring-0 focus:ring-offset-0 bg-white/5 cursor-pointer"
+                             className="w-4 h-4 rounded cursor-pointer"
+                             style={{ accentColor: 'var(--accent)' }}
                            />
                            <div className="flex flex-col">
-                             <span className="text-sm font-medium text-white/90">Simple Web Search</span>
-                             <span className="text-[10px] text-white/40 mt-0.5 leading-tight">Fast DuckDuckGo Snippets</span>
+                             <span className="text-sm font-medium" style={{ color: 'var(--fg)' }}>Simple Web Search</span>
+                             <span className="text-[10px] mt-0.5 leading-tight" style={{ color: 'var(--fg-4)' }}>Fast DuckDuckGo Snippets</span>
                            </div>
                          </label>
-                         
-                         <label className="flex items-center space-x-3 p-2 rounded-xl hover:bg-white/5 cursor-pointer transition-all border border-transparent hover:border-white/5">
-                           <input 
-                             type="checkbox" 
+
+                         <label className="flex items-center space-x-3 p-2 rounded-xl cursor-pointer transition-all border border-transparent om-hover-soft">
+                           <input
+                             type="checkbox"
                              checked={enabledTools.includes("deep_research")}
                              onChange={(e) => {
                                if (e.target.checked) setEnabledTools([...enabledTools, "deep_research"]);
                                else setEnabledTools(enabledTools.filter(t => t !== "deep_research"));
                              }}
-                             className="w-4 h-4 text-purple-400 border-white/20 rounded focus:ring-0 focus:ring-offset-0 bg-white/5 cursor-pointer"
+                             className="w-4 h-4 rounded cursor-pointer"
+                             style={{ accentColor: 'var(--accent)' }}
                            />
                            <div className="flex flex-col">
-                             <span className="text-sm font-medium text-purple-100">Deep Research Agent</span>
-                             <span className="text-[10px] text-purple-300 mt-0.5 leading-tight">Crawls full pages & synthesizes</span>
+                             <span className="text-sm font-medium" style={{ color: 'var(--fg)' }}>Deep Research Agent</span>
+                             <span className="text-[10px] mt-0.5 leading-tight" style={{ color: 'var(--fg-3)' }}>Crawls full pages & synthesizes</span>
                            </div>
                          </label>
-                         
 
-                          <label className="flex items-center space-x-3 p-2 rounded-xl hover:bg-white/5 cursor-pointer transition-all border border-transparent hover:border-white/5">
-                            <input 
-                              type="checkbox" 
+
+                          <label className="flex items-center space-x-3 p-2 rounded-xl cursor-pointer transition-all border border-transparent om-hover-soft">
+                            <input
+                              type="checkbox"
                               checked={enabledTools.includes("computer_use")}
                               onChange={(e) => {
                                 if (e.target.checked) setEnabledTools([...enabledTools, "computer_use"]);
                                 else setEnabledTools(enabledTools.filter(t => t !== "computer_use"));
                               }}
-                              className="w-4 h-4 text-amber-400 border-white/20 rounded focus:ring-0 focus:ring-offset-0 bg-white/5 cursor-pointer"
+                              className="w-4 h-4 rounded cursor-pointer"
+                              style={{ accentColor: 'var(--amber)' }}
                             />
                             <div className="flex flex-col">
-                              <span className="text-sm font-medium text-amber-100">Computer Use</span>
-                              <span className="text-[10px] text-amber-300/70 mt-0.5 leading-tight">Bash, read/write files &#x2022; Requires approval</span>
+                              <span className="text-sm font-medium" style={{ color: 'var(--fg)' }}>Computer Use</span>
+                              <span className="text-[10px] mt-0.5 leading-tight" style={{ color: 'var(--amber)' }}>Bash, read/write files &#x2022; Requires approval</span>
                             </div>
                           </label>
-                         {mcpServers.length > 0 && <div className="h-px w-full bg-white/5 my-1" />}
-                         
+                         {mcpServers.length > 0 && <div className="h-px w-full my-1" style={{ background: 'var(--line)' }} />}
+
                          {mcpServers.map(server => (
-                           <label key={server.name} className="flex items-center space-x-3 p-2 rounded-xl hover:bg-white/5 cursor-pointer transition-all border border-transparent hover:border-white/5">
-                             <input 
-                               type="checkbox" 
+                           <label key={server.name} className="flex items-center space-x-3 p-2 rounded-xl cursor-pointer transition-all border border-transparent om-hover-soft">
+                             <input
+                               type="checkbox"
                                checked={enabledTools.includes(server.name)}
                                onChange={(e) => {
                                  if (e.target.checked) setEnabledTools([...enabledTools, server.name]);
                                  else setEnabledTools(enabledTools.filter(t => t !== server.name));
                                }}
-                               className="w-4 h-4 text-accent border-white/20 rounded focus:ring-0 focus:ring-offset-0 bg-white/5 cursor-pointer"
+                               className="w-4 h-4 rounded cursor-pointer"
+                               style={{ accentColor: 'var(--accent)' }}
                              />
-                             <div className="flex flex-col">
-                               <span className="text-sm font-medium text-white/90">{server.name}</span>
-                               <span className="text-[10px] text-white/40 mt-0.5 leading-tight">Connected MCP Connector</span>
+                             <div className="flex flex-col flex-1 min-w-0">
+                               <span className="text-sm font-medium" style={{ color: 'var(--fg)' }}>{server.name}</span>
+                               <span className="text-[10px] mt-0.5 leading-tight" style={{ color: server.connected ? 'var(--fg-4)' : 'var(--amber)' }}>
+                                 {server.connected ? 'Connected MCP Connector' : 'Needs authorization'}
+                               </span>
                              </div>
+                             {!server.connected && (
+                               <button
+                                 onClick={(e) => { e.preventDefault(); e.stopPropagation(); runMcpOAuthFlow(server.id, server.name); }}
+                                 disabled={authorizingServerId === server.id}
+                                 className="transition-colors om-hover shrink-0 disabled:opacity-50"
+                                 style={{ color: 'var(--amber)' }}
+                                 title="Authorize connection"
+                               >
+                                 {authorizingServerId === server.id ? <Orbit className="w-3.5 h-3.5 spin" /> : <ShieldCheck className="w-3.5 h-3.5" />}
+                               </button>
+                             )}
+                             <button
+                               onClick={(e) => { e.preventDefault(); e.stopPropagation(); handleDeleteMcp(server.id, server.name); }}
+                               className="transition-colors om-hover shrink-0"
+                               style={{ color: 'var(--fg-4)' }}
+                               title="Remove server"
+                             >
+                               <Trash2 className="w-3.5 h-3.5" />
+                             </button>
                            </label>
                          ))}
                          {mcpServers.length === 0 && (
-                            <div className="text-[10px] text-white/30 italic px-2">No custom MCP servers connected.</div>
+                            <div className="text-[10px] italic px-2" style={{ color: 'var(--fg-4)' }}>No custom MCP servers connected.</div>
                          )}
                        </div>
                      )}
                    </div>
-                   
+
                    <div className="absolute right-0 bottom-0 mb-1 mr-1">
-                      <button 
+                      <button
                         onClick={handleSend}
                         disabled={isLoading || !input.trim()}
-                        className={`p-3.5 rounded-[1.8rem] transition-all duration-300 flex items-center justify-center ${
-                            isLoading || !input.trim() 
-                            ? 'opacity-30 bg-white/5' 
-                            : 'bg-white text-black hover:scale-105 active:scale-95 shadow-lg shadow-white/20'
-                        }`}
+                        className="p-3 rounded-2xl transition-all duration-300 flex items-center justify-center"
+                        style={
+                          isLoading || !input.trim()
+                            ? { background: 'var(--bg-3)', color: 'var(--fg-4)', cursor: 'not-allowed' }
+                            : { background: 'var(--accent)', color: 'var(--on-accent)' }
+                        }
                       >
-                        <svg className="w-5 h-5 ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 10l7-7m0 0l7 7m-7-7v18" />
+                        <svg className="w-[18px] h-[18px] ml-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.2} d="M12 19V5M5 12l7-7 7 7" />
                         </svg>
                       </button>
                    </div>
                 </div>
              </div>
-             <div className="flex justify-center mt-3 pointer-events-none">
-                 <p className="inline-flex items-center space-x-2 text-[9px] text-white/30 uppercase tracking-[0.2em] font-bold bg-white/5 px-3 py-1.5 rounded-full border border-white/5 backdrop-blur-sm">
-                    <CheckCircle className="w-3 h-3 text-accent" />
+             <div className="flex justify-center mt-2.5 pointer-events-none">
+                 <p
+                   className="inline-flex items-center space-x-2 text-[9px] uppercase tracking-[0.2em] font-bold px-3 py-1.5 rounded-full border font-mono"
+                   style={{ background: 'var(--bg-2)', borderColor: 'var(--line)', color: 'var(--fg-4)' }}
+                 >
+                    <span className="w-[5px] h-[5px] rounded-full" style={{ background: 'var(--green)' }}></span>
                     <span>Dynamic Context & Storage Active</span>
                  </p>
              </div>

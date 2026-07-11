@@ -1,0 +1,115 @@
+{
+  "uid": "omnimind-main",
+  "title": "OmniMind — LLM & Agent Observability",
+  "tags": ["omnimind", "llm"],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "refresh": "10s",
+  "time": { "from": "now-1h", "to": "now" },
+  "panels": [
+    {
+      "type": "stat", "title": "Active Streams",
+      "gridPos": { "h": 5, "w": 4, "x": 0, "y": 0 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [{ "expr": "sum(omnimind_active_streams) or vector(0)", "refId": "A" }],
+      "fieldConfig": { "defaults": { "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 5 }, { "color": "red", "value": 20 }] } }, "overrides": [] }
+    },
+    {
+      "type": "stat", "title": "Chat Requests / min",
+      "gridPos": { "h": 5, "w": 5, "x": 4, "y": 0 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [{ "expr": "sum(rate(omnimind_chat_requests_total[5m])) * 60", "refId": "A" }],
+      "fieldConfig": { "defaults": { "decimals": 1, "color": { "mode": "palette-classic" } }, "overrides": [] }
+    },
+    {
+      "type": "stat", "title": "Error Rate",
+      "gridPos": { "h": 5, "w": 5, "x": 9, "y": 0 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [{ "expr": "100 * (sum(rate(omnimind_chat_requests_total{status=\"error\"}[15m])) or vector(0)) / clamp_min(sum(rate(omnimind_chat_requests_total[15m])), 1e-9)", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "percent", "decimals": 1, "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 2 }, { "color": "red", "value": 10 }] } }, "overrides": [] }
+    },
+    {
+      "type": "stat", "title": "Time to First Token (p95)",
+      "gridPos": { "h": 5, "w": 5, "x": 14, "y": 0 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(omnimind_chat_ttft_seconds_bucket[15m])) by (le))", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "s", "decimals": 2, "color": { "mode": "thresholds" }, "thresholds": { "steps": [{ "color": "green", "value": null }, { "color": "yellow", "value": 3 }, { "color": "red", "value": 10 }] } }, "overrides": [] }
+    },
+    {
+      "type": "stat", "title": "Tokens / min",
+      "gridPos": { "h": 5, "w": 5, "x": 19, "y": 0 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [{ "expr": "sum(rate(omnimind_chat_tokens_total[5m])) * 60", "refId": "A" }],
+      "fieldConfig": { "defaults": { "decimals": 0, "color": { "mode": "palette-classic" } }, "overrides": [] }
+    },
+
+    {
+      "type": "timeseries", "title": "Chat Requests by Provider / Status",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 5 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [{ "expr": "sum(rate(omnimind_chat_requests_total[$__rate_interval])) by (provider, status) * 60", "legendFormat": "{{provider}} · {{status}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "opm", "custom": { "fillOpacity": 12, "lineWidth": 2 } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries", "title": "Token Throughput (input vs output)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 5 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [{ "expr": "sum(rate(omnimind_chat_tokens_total[$__rate_interval])) by (direction, provider) * 60", "legendFormat": "{{provider}} · {{direction}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "cpm", "custom": { "fillOpacity": 12, "lineWidth": 2 } }, "overrides": [] }
+    },
+
+    {
+      "type": "timeseries", "title": "Time to First Token (p50 / p95)",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 13 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(omnimind_chat_ttft_seconds_bucket[$__rate_interval])) by (le, provider))", "legendFormat": "{{provider}} p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(omnimind_chat_ttft_seconds_bucket[$__rate_interval])) by (le, provider))", "legendFormat": "{{provider}} p95", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "fillOpacity": 8, "lineWidth": 2 } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries", "title": "Full Response Duration (p50 / p95)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 13 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [
+        { "expr": "histogram_quantile(0.50, sum(rate(omnimind_chat_duration_seconds_bucket[$__rate_interval])) by (le, provider))", "legendFormat": "{{provider}} p50", "refId": "A" },
+        { "expr": "histogram_quantile(0.95, sum(rate(omnimind_chat_duration_seconds_bucket[$__rate_interval])) by (le, provider))", "legendFormat": "{{provider}} p95", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "fillOpacity": 8, "lineWidth": 2 } }, "overrides": [] }
+    },
+
+    {
+      "type": "timeseries", "title": "Tool Calls by Tool / Status",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 21 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [{ "expr": "sum(rate(omnimind_tool_calls_total[$__rate_interval])) by (tool, status) * 60", "legendFormat": "{{tool}} · {{status}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "opm", "custom": { "fillOpacity": 12, "lineWidth": 2 } }, "overrides": [] }
+    },
+    {
+      "type": "timeseries", "title": "Tool Execution Time (p95 by tool)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 21 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [{ "expr": "histogram_quantile(0.95, sum(rate(omnimind_tool_duration_seconds_bucket[$__rate_interval])) by (le, tool))", "legendFormat": "{{tool}}", "refId": "A" }],
+      "fieldConfig": { "defaults": { "unit": "s", "custom": { "fillOpacity": 8, "lineWidth": 2 } }, "overrides": [] }
+    },
+
+    {
+      "type": "timeseries", "title": "Memory Retrievals & MCP Connects",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 29 },
+      "datasource": { "uid": "omnimind-prometheus" },
+      "targets": [
+        { "expr": "sum(rate(omnimind_memory_retrievals_total[$__rate_interval])) * 60", "legendFormat": "memory retrievals/min", "refId": "A" },
+        { "expr": "sum(rate(omnimind_mcp_connects_total[$__rate_interval])) by (transport, status) * 60", "legendFormat": "mcp {{transport}} · {{status}}", "refId": "B" }
+      ],
+      "fieldConfig": { "defaults": { "unit": "opm", "custom": { "fillOpacity": 12, "lineWidth": 2 } }, "overrides": [] }
+    },
+    {
+      "type": "logs", "title": "Backend Logs (Loki)",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 29 },
+      "datasource": { "uid": "omnimind-loki" },
+      "targets": [{ "expr": "{service_name=\"omnimind-backend\"}", "refId": "A" }],
+      "options": { "showTime": true, "wrapLogMessage": true, "sortOrder": "Descending", "enableLogDetails": true }
+    }
+  ]
+}

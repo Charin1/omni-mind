@@ -33,7 +33,8 @@ class FactExtractor:
         
         response_text = ""
         async for chunk in provider.chat(messages, config):
-            response_text += chunk.content
+            if chunk.content:
+                response_text += chunk.content
 
         try:
             # Clean possible markdown formatting

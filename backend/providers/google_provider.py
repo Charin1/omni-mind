@@ -24,8 +24,10 @@ class GoogleProvider(BaseLLMProvider):
         for m in messages:
             contents.append({"role": "user" if m.role == "user" else "model", "parts": [{"text": m.content}]})
 
-        # Note: genai SDK might use different names for parameters
-        response = self.client.aio.models.generate_content_stream(
+        # generate_content_stream is a coroutine that resolves to the async
+        # iterator - iterating it without awaiting raises
+        # "'async for' requires an object with __aiter__ method, got coroutine".
+        response = await self.client.aio.models.generate_content_stream(
             model=config.model if hasattr(config, "model") else "gemini-2.5-flash",
             contents=contents,
             config={

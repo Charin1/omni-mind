@@ -16,6 +16,7 @@ class ConversationResponse(BaseModel):
 
     id: str
     user_id: Optional[str] = None
+    project_id: Optional[str] = None
     title: Optional[str] = None
     provider: Optional[str] = None
     model: Optional[str] = None
@@ -41,23 +42,28 @@ class ConversationDetailResponse(BaseModel):
 @router.get("", response_model=List[ConversationResponse])
 async def list_conversations(
     user_id: str = "local-user",
+    project_id: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(
+    query = (
         select(Conversation)
         .where(Conversation.user_id == user_id)
         .order_by(Conversation.updated_at.desc())
     )
+    if project_id is not None:
+        query = query.where(Conversation.project_id == project_id)
+    result = await db.execute(query)
     return result.scalars().all()
 
 class ConversationCreate(BaseModel):
     title: str = "New Chat"
     user_id: str = "local-user"
+    project_id: Optional[str] = None
 
 @router.post("", response_model=ConversationResponse)
 async def create_conversation(data: ConversationCreate, db: AsyncSession = Depends(get_db)):
     conv_id = str(uuid.uuid4())
-    new_conv = Conversation(id=conv_id, title=data.title, user_id=data.user_id)
+    new_conv = Conversation(id=conv_id, title=data.title, user_id=data.user_id, project_id=data.project_id)
     db.add(new_conv)
     await db.commit()
     await db.refresh(new_conv)

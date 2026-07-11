@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+# Metrics arrive via remote-write from the otel-collector, so no app scrape
+# targets are required. Prometheus only self-scrapes for its own health.
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

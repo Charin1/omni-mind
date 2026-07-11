@@ -17,8 +17,10 @@ class LiteLLMGateway:
         return self._acompletion is not None
 
     def resolve_model(self, provider: str, model: str) -> str:
-        if "/" in model:
-            return model
+        # Google's native API namespaces models as "models/gemini-2.5-flash";
+        # that prefix means nothing to litellm, so strip it before routing.
+        if provider == "google" and model.startswith("models/"):
+            model = model.split("/", 1)[1]
 
         prefixes = {
             "openai": "openai",
@@ -28,6 +30,8 @@ class LiteLLMGateway:
         }
         prefix = prefixes.get(provider)
         if not prefix:
+            return model
+        if model.startswith(f"{prefix}/"):
             return model
         return f"{prefix}/{model}"
 
