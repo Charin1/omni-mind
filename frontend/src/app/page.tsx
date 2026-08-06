@@ -911,7 +911,7 @@ export default function Home() {
       {projectModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-sm" style={{ background: 'var(--scrim)' }}>
            <div
-             className="w-[420px] rounded-3xl p-6 shadow-2xl animate-fade-in relative overflow-hidden border"
+             className="w-[90%] max-w-[420px] rounded-3xl p-6 shadow-2xl animate-fade-in relative overflow-hidden border"
              style={{ background: 'var(--elev)', borderColor: 'var(--line-2)' }}
            >
               <button onClick={() => setProjectModal(null)} className="absolute top-4 right-4 transition-colors" style={{ color: 'var(--fg-3)' }}>
@@ -981,7 +981,7 @@ export default function Home() {
       {showInstructionsModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-sm" style={{ background: 'var(--scrim)' }}>
            <div
-             className="w-[480px] rounded-3xl p-6 shadow-2xl animate-fade-in relative overflow-hidden border"
+             className="w-[90%] max-w-[480px] rounded-3xl p-6 shadow-2xl animate-fade-in relative overflow-hidden border"
              style={{ background: 'var(--elev)', borderColor: 'var(--line-2)' }}
            >
               <button onClick={() => setShowInstructionsModal(false)} className="absolute top-4 right-4 transition-colors" style={{ color: 'var(--fg-3)' }}>
@@ -1021,7 +1021,7 @@ export default function Home() {
       {showMcpModal && (
         <div className="absolute inset-0 z-50 flex items-center justify-center backdrop-blur-sm" style={{ background: 'var(--scrim)' }}>
            <div
-             className="w-96 rounded-3xl p-6 shadow-2xl animate-fade-in relative overflow-hidden border"
+             className="w-[90%] max-w-md rounded-3xl p-6 shadow-2xl animate-fade-in relative overflow-hidden border"
              style={{ background: 'var(--elev)', borderColor: 'var(--line-2)' }}
            >
               <button onClick={() => setShowMcpModal(false)} className="absolute top-4 right-4 transition-colors" style={{ color: 'var(--fg-3)' }}>
@@ -1137,7 +1137,7 @@ export default function Home() {
 
 
       {/* Sidebar */}
-      <div className="w-72 flex flex-col p-4 z-20 h-full border-r" style={{ background: 'var(--bg-2)', borderColor: 'var(--line)' }}>
+      <div className="w-72 shrink-0 flex flex-col p-4 z-20 h-full border-r overflow-y-auto custom-scrollbar" style={{ background: 'var(--bg-2)', borderColor: 'var(--line)' }}>
         {/* Header */}
         <div className="flex items-center space-x-3 px-2 mb-6 flex-shrink-0">
           <div

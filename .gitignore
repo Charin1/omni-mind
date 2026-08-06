@@ -73,3 +73,7 @@ backend/generated_artifacts/
 *.sln
 *.sw?
 .history/
+
+# Agents
+.agent
+.agents/
