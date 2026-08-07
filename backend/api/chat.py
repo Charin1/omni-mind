@@ -2,6 +2,7 @@ from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from typing import List, Optional, Any
+import os
 import json
 import re
 import logging
@@ -137,7 +138,13 @@ def _clean_json_wrapped_response(content: str) -> Optional[str]:
         if isinstance(value, str) and value.strip():
             readable_parts.append(value.strip())
 
-    return "\n\n".join(readable_parts) if readable_parts else None
+def _extract_last_tool_summary(messages: list) -> Optional[str]:
+    for msg in reversed(messages):
+        content = getattr(msg, "content", "") or ""
+        if getattr(msg, "role", None) in ("user", "tool") and "[System: Tool" in content:
+            if "search_web" in content or "title" in content or "snippet" in content:
+                return f"**Search Results Summary**:\n\n{content[:800]}..."
+    return None
 
 
 def _is_local_model(provider: str) -> bool:
@@ -533,6 +540,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                 # treated as thinking and never shown to the user (stuck spinner).
                 _think_in_block = False
                 _think_buf = ""  # rolling buffer for tag boundary detection
+                current_tools = None if (executed_tool_this_run and local_model) else (llm_tools if llm_tools else None)
 
                 async with chat_semaphore:
                     if llm_gateway.available:
@@ -541,7 +549,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                                 provider=request.provider,
                                 messages=full_messages,
                                 config=config,
-                                tools=llm_tools if llm_tools else None,
+                                tools=current_tools,
                             ):
                                 # Tool calls stream in fragments on OpenAI/Anthropic-compatible
                                 # backends. Accumulate them as they arrive; the final chunk may
@@ -602,31 +610,32 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                                                 yield f"data: {json.dumps({'content': safe, 'role': 'assistant'})}\n\n"
                                             break
                                         else:
-                                            before = _think_buf[:tag_start]
-                                            _think_buf = _think_buf[tag_start + 7:]
+                                            # Tag found: emit everything before <think> as content
+                                            if tag_start > 0:
+                                                pre_tag = _think_buf[:tag_start]
+                                                assistant_response += pre_tag
+                                                total_assistant_response += pre_tag
+                                                yield f"data: {json.dumps({'content': pre_tag, 'role': 'assistant'})}\n\n"
                                             _think_in_block = True
-                                            if before:
-                                                assistant_response += before
-                                                total_assistant_response += before
-                                                yield f"data: {json.dumps({'content': before, 'role': 'assistant'})}\n\n"
+                                            _think_buf = _think_buf[tag_start + 7:]
                                             yield f"data: {json.dumps({'type': 'thinking_start'})}\n\n"
                                     else:
                                         tag_end = _think_buf.find("</think>")
                                         if tag_end == -1:
-                                            # Still in think block; emit safe portion (keep last 9 chars)
-                                            if len(_think_buf) > 9:
-                                                safe = _think_buf[:-9]
-                                                _think_buf = _think_buf[-9:]
-                                                if safe:
-                                                    yield f"data: {json.dumps({'type': 'thinking_chunk', 'content': safe})}\n\n"
+                                            # Still inside <think> block; emit safe content
+                                            if len(_think_buf) > 8:
+                                                safe = _think_buf[:-8]
+                                                _think_buf = _think_buf[-8:]
+                                                yield f"data: {json.dumps({'type': 'thinking_chunk', 'content': safe})}\n\n"
                                             break
                                         else:
-                                            think_part = _think_buf[:tag_end]
-                                            _think_buf = _think_buf[tag_end + 8:]
-                                            _think_in_block = False
-                                            if think_part:
-                                                yield f"data: {json.dumps({'type': 'thinking_chunk', 'content': think_part})}\n\n"
+                                            # Closing tag found: emit remainder of think content
+                                            pre_end = _think_buf[:tag_end]
+                                            if pre_end:
+                                                yield f"data: {json.dumps({'type': 'thinking_chunk', 'content': pre_end})}\n\n"
                                             yield f"data: {json.dumps({'type': 'thinking_end'})}\n\n"
+                                            _think_in_block = False
+                                            _think_buf = _think_buf[tag_end + 8:]
 
                         except Exception as e:
                             logger.error(f"LLM Stream Error: {e}", exc_info=True)
@@ -662,7 +671,7 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
 
                 # --- Text-based tool call detection (Ollama / models without native function calling) ---
                 # Some models output {"name": ..., "arguments": ...} as plain text instead of delta tool_calls.
-                if not gathered_tool_calls and raw_model_output.strip():
+                if not gathered_tool_calls and raw_model_output.strip() and not (executed_tool_this_run and local_model):
                     try:
                         raw_call = raw_model_output.strip()
                         # Extract the JSON substring if it's wrapped in text/fences
@@ -870,10 +879,15 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                                 tool_result_text = f"Error executing {tool_name}: {str(e)}"
                             
                         # Append the execution result back into the memory window for the LLM to read
+                        max_tool_chars = int(os.getenv("MAX_TOOL_RESULT_TOKENS", "1500")) * 4
+                        trimmed_result = str(tool_result_text)[:max_tool_chars]
+                        if len(str(tool_result_text)) > max_tool_chars:
+                            trimmed_result += "\n\n[Result truncated for token budget]"
+
                         if is_text_tool:
-                            full_messages.append(Message(role="user", content=f"[System: Tool `{tool_name}` was executed in the background. Here are the results:]\n\n{tool_result_text}\n\n[System: Now answer the user's original query naturally in markdown/plain text. Do not output JSON. Do not include thought, analysis, plan, or hidden reasoning fields.]"))
+                            full_messages.append(Message(role="user", content=f"[System: Tool `{tool_name}` was executed in the background. Here are the results:]\n\n{trimmed_result}\n\n[System: Now answer the user's original query naturally in markdown/plain text. Do not output JSON. Do not include thought, analysis, plan, or hidden reasoning fields.]"))
                         else:
-                            full_messages.append(Message(role="tool", content=str(tool_result_text), tool_call_id=call["id"], name=tool_name))
+                            full_messages.append(Message(role="tool", content=trimmed_result, tool_call_id=call["id"], name=tool_name))
                     
                     # Tool cycle processed; continue the outer while loop to synthesize final answer
                     executed_tool_this_run = True
@@ -886,9 +900,10 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                         total_assistant_response = total_assistant_response[:iter_response_start] + cleaned_response
                         yield f"data: {json.dumps({'type': 'response_replace', 'content': cleaned_response})}\n\n"
                     elif suppress_json_reasoning and not assistant_response.strip():
-                        fallback_response = (
-                            "The selected local model used its output budget on hidden reasoning and did not produce a final answer. "
-                            "Please rerun the message; OmniMind will now use a stricter local-model prompt that asks for direct markdown answers."
+                        # Extract key readable information from full_messages if available
+                        fallback_response = _extract_last_tool_summary(full_messages) or (
+                            "The selected local model used its output budget on hidden reasoning. "
+                            "Please ask your question again; OmniMind will synthesize directly."
                         )
                         assistant_response = fallback_response
                         total_assistant_response = total_assistant_response[:iter_response_start] + fallback_response
@@ -908,11 +923,9 @@ async def chat(request: ChatRequest, db: AsyncSession = Depends(get_db)):
                         full_messages.append(Message(
                             role="user",
                             content=(
-                                "[System: Your previous reply only described the task or restated the "
-                                "search results instead of answering. Write the FINAL answer to the user's "
-                                "original question NOW, directly in clear markdown. Present the actual "
-                                "information — do NOT refer to 'the user', 'the search results', or your own "
-                                "process, and do NOT output JSON or hidden reasoning.]"
+                                "[System: Write the FINAL answer to the user's original question NOW in clear markdown. "
+                                "Present the actual information directly — do NOT refer to 'the user', 'the search results', "
+                                "or your own process, and do NOT output JSON or hidden reasoning.]"
                             ),
                         ))
                         continue

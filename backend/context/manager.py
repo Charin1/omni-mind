@@ -1,11 +1,13 @@
+import os
 from typing import List, Optional
 from providers.base import Message
 from .token_counter import count_tokens
 from .summarizer import summarize_messages
 
 class ContextManager:
-    def __init__(self, limit: int = 4000, trigger_threshold: float = 0.8):
-        self.limit = limit
+    def __init__(self, limit: Optional[int] = None, trigger_threshold: float = 0.8):
+        default_limit = int(os.getenv("DEFAULT_CONTEXT_LIMIT", "128000"))
+        self.limit = limit if limit is not None else default_limit
         self.trigger_threshold = trigger_threshold
 
     async def assemble_context(
@@ -44,17 +46,21 @@ class ContextManager:
         current_tokens = count_tokens(context + messages, model)
         
         if current_tokens > input_limit * self.trigger_threshold:
-            # Need to summarize or truncate
-            # Keep last 5 messages + summary of the rest
-            if len(messages) > 10:
-                to_summarize = messages[:-5]
-                recent_messages = messages[-5:]
+            # Automatic iterative context compression
+            if len(messages) > 4:
+                to_summarize = messages[:-4]
+                recent_messages = messages[-4:]
                 
-                summary = await summarize_messages(to_summarize, provider, model)
-                context.append(Message(role="system", content=f"Previous conversation summary: {summary}"))
+                try:
+                    summary = await summarize_messages(to_summarize, provider, model)
+                    context.append(Message(role="system", content=f"Previous conversation summary: {summary}"))
+                except Exception:
+                    # Fallback if summarizer fails: truncate while retaining recent
+                    pass
+                
                 context.extend(recent_messages)
             else:
-                # Just truncate the oldest
+                # Truncate oldest messages while preserving at least the latest user prompt
                 while count_tokens(context + messages, model) > input_limit and len(messages) > 1:
                     messages.pop(0)
                 context.extend(messages)
@@ -72,4 +78,5 @@ class ContextManager:
                 return min(instance.get_context_limit(model), 400000)
         except Exception:
             pass
-        return self.limit
+        return int(os.getenv("DEFAULT_CONTEXT_LIMIT", "128000"))
+

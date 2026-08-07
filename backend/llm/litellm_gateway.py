@@ -58,6 +58,11 @@ class LiteLLMGateway:
             payload["tools"] = tools
         if provider == "ollama":
             payload["api_base"] = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            try:
+                num_ctx = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
+                payload["extra_body"] = {"options": {"num_ctx": num_ctx}}
+            except ValueError:
+                pass
 
         response = await self._acompletion(**payload)
         async for chunk in response:
@@ -92,6 +97,11 @@ class LiteLLMGateway:
             payload["max_tokens"] = config.max_tokens
         if provider == "ollama":
             payload["api_base"] = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+            try:
+                num_ctx = int(os.getenv("OLLAMA_NUM_CTX", "16384"))
+                payload["extra_body"] = {"options": {"num_ctx": num_ctx}}
+            except ValueError:
+                pass
 
         response = await self._acompletion(**payload)
         return response.choices[0].message.content or ""

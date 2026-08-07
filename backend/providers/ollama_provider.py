@@ -45,8 +45,10 @@ class OllamaProvider(BaseLLMProvider):
         return total_chars // 4
 
     def get_context_limit(self, model: str) -> int:
-        # Default for most local models, can be configured
-        return 8192
+        try:
+            return int(os.getenv("OLLAMA_NUM_CTX", "16384"))
+        except ValueError:
+            return 16384
 
     async def get_available_models(self) -> List[str]:
         try:

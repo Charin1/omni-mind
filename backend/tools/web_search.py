@@ -86,19 +86,19 @@ class WebSearchTools:
                     if len(final_results) >= max_results:
                         break
 
-            if include_content and final_results:
-                # Automatically scrape the top link, but with a STRICT 5s timeout.
-                # We don't want a slow site to hang a simple search.
-                try:
-                    top_url = final_results[0]['href']
-                    page_text = await asyncio.wait_for(self.read_url(top_url), timeout=5.0)
-                    final_results[0]['scraped_content'] = page_text[:3000] 
-                except asyncio.TimeoutError:
-                    final_results[0]['scraped_content'] = "[Scrape timed out - site was too slow for simple search]"
-                except Exception as e:
-                    final_results[0]['scraped_content_error'] = str(e)
-                
-            return json.dumps(final_results, indent=2)
+            # Clean and compact results to prevent context window overflow
+            compact_results = []
+            for r in final_results:
+                item = {
+                    "title": r.get("title", ""),
+                    "href": r.get("href", ""),
+                    "snippet": (r.get("body") or "")[:250],
+                }
+                if "scraped_content" in r:
+                    item["scraped_content"] = r["scraped_content"][:1200]
+                compact_results.append(item)
+
+            return json.dumps(compact_results, indent=2)
         except Exception as e:
             logger.error(f"Error executing web search for query '{query}': {e}", exc_info=True)
             return f"Error executing web search: {str(e)}"
