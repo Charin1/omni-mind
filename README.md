@@ -17,6 +17,14 @@ Current foundation features include:
 - `backend/`: FastAPI API, SQLite storage, provider integrations
 - `.env.example`: shared environment variable template
 
+## Documentation
+
+Detailed architecture docs, onboarding guides, and API reference live in the `docs/` folder:
+
+- [`docs/architecture.md`](docs/architecture.md) — Full system architecture with Mermaid diagrams, data flow, ER diagrams, and module breakdowns
+- [`docs/getting-started.md`](docs/getting-started.md) — Quick-start guide for new contributors
+- [`docs/api-reference.md`](docs/api-reference.md) — Complete REST + SSE endpoint reference
+
 ## Prerequisites
 
 - Node.js 20+ and npm
